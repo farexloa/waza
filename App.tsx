@@ -7,7 +7,6 @@ import { StudentDetailModal } from './components/StudentDetailModal';
 import { INITIAL_STUDENTS, SCHEDULE_ITEMS, INITIAL_PARENTS } from './constants';
 import { Student, StudentStatus, PickupAuthStatus, UserRole, SurveyData, Parent, StudentActivity } from './types';
 import { db } from './firebaseConfig';
-// IMPORTANTE: Agregamos onSnapshot para escuchar cambios en tiempo real
 import { collection, addDoc, query, where, getDocs, updateDoc, doc, onSnapshot } from 'firebase/firestore';
 
 const App: React.FC = () => {
@@ -91,7 +90,7 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // 2. ESCUCHAR CAMBIOS EN TIEMPO REAL (NUEVO)
+  // 2. ESCUCHAR CAMBIOS EN TIEMPO REAL
   // Si soy padre y tengo un hijo vinculado, escucho sus cambios en la BD
   useEffect(() => {
     let unsubscribe: () => void;
@@ -108,9 +107,7 @@ const App: React.FC = () => {
           
           // Actualizamos la lista local de estudiantes
           setStudents(prev => {
-             // Reemplazamos el estudiante actualizado en la lista
              const otherStudents = prev.filter(s => s.id !== updatedStudent.id);
-             // Lo ponemos primero
              return [updatedStudent, ...otherStudents];
           });
         }
@@ -150,7 +147,7 @@ const App: React.FC = () => {
 
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
-  // --- HANDLER: ACTUALIZAR ACTIVIDAD ESTUDIANTE (CON GUARDADO EN BD) ---
+  // --- HANDLER: ACTUALIZAR ACTIVIDAD ESTUDIANTE ---
   const handleUpdateActivity = async (activity: StudentActivity) => {
     // 1. Actualizar estado local (feedback inmediato)
     const updatedStudents = students.map(s => 
@@ -158,21 +155,25 @@ const App: React.FC = () => {
     );
     setStudents(updatedStudents);
 
-    // 2. Persistir en localStorage si es necesario
+    // 2. Persistir en localStorage
     const myStudent = updatedStudents.find(s => s.id === currentStudentId);
     const savedSession = localStorage.getItem('coar_session');
     if (savedSession && userRole === 'STUDENT' && myStudent) {
        saveSession('STUDENT', myStudent, updatedStudents);
     }
     
-    // 3. ACTUALIZAR FIREBASE (CRÍTICO)
+    // 3. ACTUALIZAR FIREBASE (Para que el padre lo vea)
     if (currentStudentId) {
       try {
         const studentRef = doc(db, "students", currentStudentId);
+        // Definimos el texto que se mostrará en el badge principal
+        const statusText = activity === 'CLASSES' ? 'EN CLASES' : 
+                           activity === 'FREE' ? 'TIEMPO LIBRE' : 
+                           activity === 'EXIT' ? 'SALIDA' : 'EN LÍNEA';
+                           
         await updateDoc(studentRef, { 
           currentActivity: activity,
-          // Actualizamos también el texto para que sea consistente
-          statusText: activity === 'CLASSES' ? 'En Clases' : activity === 'FREE' ? 'Libre' : activity === 'EXIT' ? 'Salida' : 'En línea'
+          statusText: statusText // Actualizamos el texto principal
         });
       } catch (error) {
         console.error("Error al guardar actividad en BD:", error);
@@ -188,7 +189,6 @@ const App: React.FC = () => {
 
     try {
       if (loginTab === 'PARENT') {
-        // --- LOGIN PADRES ---
         const q = query(collection(db, "parents"), where("dni", "==", authInput));
         const querySnapshot = await getDocs(q);
 
@@ -198,12 +198,10 @@ const App: React.FC = () => {
           
           let updatedStudents = [...students];
           
-          // Lógica de vinculación inicial
           if ((parentData as any).linkedStudentId) {
              const studentId = (parentData as any).linkedStudentId;
-             // Obtenemos los datos más frescos posible
              const studentRef = doc(db, "students", studentId);
-             // Usamos getDoc para obtener un solo documento por ID si es posible, pero query funciona bien
+             // Usamos onSnapshot dentro del useEffect, pero aquí hacemos fetch inicial
              const qStudent = query(collection(db, "students"), where("__name__", "==", studentId));
              const studentSnap = await getDocs(qStudent);
              
@@ -223,7 +221,6 @@ const App: React.FC = () => {
           }
 
         } else {
-          // Intento por Código de Familia (Legacy)
           const qCode = query(collection(db, "parents"), where("familyCode", "==", authInput));
           const codeSnapshot = await getDocs(qCode);
           
@@ -240,7 +237,6 @@ const App: React.FC = () => {
         }
 
       } else {
-        // --- LOGIN ESTUDIANTES ---
         const q = query(collection(db, "students"), where("dni", "==", authInput));
         const querySnapshot = await getDocs(q);
 
@@ -840,12 +836,21 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
 
                           </div>
                         </div>
+                        
+                        {/* BADGE DE ESTADO (REEMPLAZA A "EN LÍNEA" SI HAY ACTIVIDAD) */}
                         <span className={`px-3 py-1 rounded-full text-xs font-semibold border flex items-center ${
+                          student.currentActivity === 'CLASSES' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+                          student.currentActivity === 'FREE' ? 'bg-green-100 text-green-700 border-green-200' :
+                          student.currentActivity === 'EXIT' ? 'bg-orange-100 text-orange-700 border-orange-200' :
                           student.status === StudentStatus.READY ? 'bg-green-100 text-green-700 border-green-200' :
                           student.status === StudentStatus.ON_WAY ? 'bg-yellow-100 text-yellow-700 border-yellow-200' :
                           'bg-blue-50 text-blue-700 border-blue-100'
                         }`}>
-                          {student.statusText}
+                          {/* MOSTRAR EL TEXTO CORRECTO */}
+                          {student.currentActivity === 'CLASSES' ? 'EN CLASES' :
+                           student.currentActivity === 'FREE' ? 'TIEMPO LIBRE' :
+                           student.currentActivity === 'EXIT' ? 'SALIDA' :
+                           student.statusText || 'En línea'}
                         </span>
                       </div>
 

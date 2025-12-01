@@ -5,14 +5,13 @@ import { Icons } from './components/Icons';
 import { StudentPortal } from './components/StudentPortal';
 import { StudentDetailModal } from './components/StudentDetailModal';
 import { INITIAL_STUDENTS, SCHEDULE_ITEMS, INITIAL_PARENTS } from './constants';
-import { Student, StudentStatus, cckupAuthStatus, UserRole, SurveyData, Parent, StudentActivity } from './types';
+import { Student, StudentStatus, PickupAuthStatus, UserRole, SurveyData, Parent, StudentActivity } from './types';
 import { db } from './firebaseConfig';
 import { collection, addDoc, query, where, getDocs, updateDoc, doc, onSnapshot } from 'firebase/firestore';
 
 const App: React.FC = () => {
   // --- DATABASE STATE ---
   const [parents, setParents] = useState<Parent[]>(INITIAL_PARENTS);
-  // Inicializamos vacío para llenar con datos reales de Firebase
   const [students, setStudents] = useState<Student[]>([]); 
 
   // --- AUTH & USER STATE ---
@@ -21,7 +20,7 @@ const App: React.FC = () => {
   const [currentStudentId, setCurrentStudentId] = useState<string>('');
   
   // --- PAGINATION STATE ---
-  const [visibleCount, setVisibleCount] = useState(8); // Empezamos mostrando 8
+  const [visibleCount, setVisibleCount] = useState(8);
 
   // --- UI STATE ---
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -73,7 +72,7 @@ const App: React.FC = () => {
   useEffect(() => {
     const fetchStudents = async () => {
       try {
-        const q = query(collection(db, "students")); // Traer todos
+        const q = query(collection(db, "students")); 
         const querySnapshot = await getDocs(q);
         const fetchedStudents: Student[] = [];
         querySnapshot.forEach((doc) => {
@@ -86,7 +85,7 @@ const App: React.FC = () => {
     };
 
     fetchStudents();
-  }, []); // Se ejecuta una vez al montar
+  }, []);
 
   // 2. RECUPERAR SESIÓN AL CARGAR
   useEffect(() => {
@@ -109,11 +108,8 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // 3. ESCUCHAR CAMBIOS EN TIEMPO REAL (De todos los estudiantes o solo del vinculado)
-  // Para ver cambios de TODOS en tiempo real, deberíamos hacer onSnapshot a la colección completa.
-  // Pero para optimizar, escucharemos principalmente al hijo vinculado y recargaremos la lista si es necesario.
+  // 3. ESCUCHAR CAMBIOS EN TIEMPO REAL
   useEffect(() => {
-    // Si hay un hijo vinculado, escuchamos sus cambios específicos prioritariamente
     let unsubscribeLinked: () => void;
 
     if (userRole === 'PARENT' && currentUserParent && (currentUserParent as any).linkedStudentId) {
@@ -124,7 +120,6 @@ const App: React.FC = () => {
         if (docSnapshot.exists()) {
           const updatedStudent = { ...docSnapshot.data(), id: docSnapshot.id } as Student;
           setStudents(prev => {
-             // Actualizamos ese estudiante específico en la lista general
              return prev.map(s => s.id === updatedStudent.id ? updatedStudent : s);
           });
         }
@@ -157,17 +152,14 @@ const App: React.FC = () => {
     setCurrentUserParent(null);
     setCurrentStudentId('');
     setLoginTab('PARENT');
-    // No reseteamos students a INITIAL_STUDENTS, dejamos los cargados de BD
   };
 
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
   // --- LÓGICA DE ORDENAMIENTO Y VISUALIZACIÓN ---
-  
-  // Filtramos y ordenamos: Hijo vinculado PRIMERO, luego el resto
   const getSortedStudents = () => {
     if (!currentUserParent || !(currentUserParent as any).linkedStudentId) {
-      return students; // Si no hay padre o vinculación, orden normal (como vengan de BD)
+      return students; 
     }
     
     const linkedId = (currentUserParent as any).linkedStudentId;
@@ -190,10 +182,7 @@ const App: React.FC = () => {
 
   const handleShowLess = () => {
     setVisibleCount(8);
-    // Opcional: scrollear hacia arriba
-    // window.scrollTo({ top: 0, behavior: 'smooth' });
   };
-
 
   // --- HANDLER: ACTUALIZAR ACTIVIDAD ESTUDIANTE ---
   const handleUpdateActivity = async (activity: StudentActivity) => {
@@ -242,7 +231,6 @@ const App: React.FC = () => {
           }
 
         } else {
-          // Intento por Código de Familia
           const qCode = query(collection(db, "parents"), where("familyCode", "==", authInput));
           const codeSnapshot = await getDocs(qCode);
           
@@ -259,7 +247,6 @@ const App: React.FC = () => {
         }
 
       } else {
-        // LOGIN ESTUDIANTE
         const q = query(collection(db, "students"), where("dni", "==", authInput));
         const querySnapshot = await getDocs(q);
 
@@ -406,10 +393,8 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
       };
 
       const docRef = await addDoc(collection(db, "students"), newStudent);
-
       const studentWithId = { ...newStudent, id: docRef.id };
       
-      // Añadimos el nuevo estudiante a la lista local
       setStudents(prev => [...prev, studentWithId as any]);
       setCurrentStudentId(docRef.id);
       setUserRole('STUDENT');
@@ -440,12 +425,6 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
         </button>
 
         <div className={`rounded-3xl shadow-2xl max-w-[480px] w-full overflow-hidden relative ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
-          {/* ... (CONTENIDO DE LOGIN IGUAL QUE ANTES) ... */}
-          
-          {/* Como no ha cambiado la estructura visual del Login, mantenemos el código existente pero aseguramos que se renderice bien. */}
-          {/* Para ahorrar espacio en esta respuesta, asumo que el bloque de renderizado del login es el mismo que tu versión anterior. */}
-          {/* ... Incluye aquí todo el bloque de Login/Registro que ya tenías ... */}
-          
           <div className="bg-blue-900 p-8 text-center relative overflow-hidden">
              <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
              <div className="w-16 h-16 bg-white rounded-2xl flex items-center justify-center mx-auto mb-3 shadow-lg relative z-10">
@@ -533,7 +512,6 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
             </>
           ) : (
             <div className="p-6 h-[500px] overflow-y-auto custom-scrollbar">
-               {/* ... (FORMULARIOS DE REGISTRO IGUALES QUE ANTES) ... */}
                <div className={`flex items-center gap-2 mb-4 sticky top-0 z-10 py-2 border-b ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100'}`}>
                  <button onClick={() => setIsRegistering(false)} className={`p-2 rounded-full ${isDarkMode ? 'hover:bg-gray-700 text-white' : 'hover:bg-gray-100 text-gray-500'}`}>
                    <Icons.Close className="w-4 h-4" />
@@ -560,7 +538,6 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
                         * Pide este código a tu hijo (está en su credencial digital) para vincularlo automáticamente.
                       </p>
                    </div>
-                   {/* Resto campos Padre... */}
                    <div><label className="text-[10px] font-bold text-gray-500 ml-1">NOMBRE</label><input type="text" value={parentRegData.name} onChange={(e) => setParentRegData({...parentRegData, name: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 font-medium outline-none" required /></div>
                    <div><label className="text-[10px] font-bold text-gray-500 ml-1">DNI</label><input type="text" value={parentRegData.dni} onChange={(e) => setParentRegData({...parentRegData, dni: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 font-medium outline-none" maxLength={8} required /></div>
                    <div><label className="text-[10px] font-bold text-gray-500 ml-1">CELULAR</label><input type="text" value={parentRegData.phone} onChange={(e) => setParentRegData({...parentRegData, phone: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 font-medium outline-none" required /></div>
@@ -571,7 +548,6 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
                  </form>
                ) : (
                  <form onSubmit={handleRegisterStudent} className="space-y-4">
-                   {/* Campos Estudiante... */}
                    <div className="grid grid-cols-2 gap-3">
                      <div><label className="text-[10px] font-bold text-gray-500 ml-1">DNI</label><input type="text" value={studentRegData.dni} onChange={(e) => setStudentRegData({...studentRegData, dni: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 font-medium outline-none" maxLength={8} required /></div>
                      <div><label className="text-[10px] font-bold text-gray-500 ml-1">NOMBRE</label><input type="text" value={studentRegData.name} onChange={(e) => setStudentRegData({...studentRegData, name: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 font-medium outline-none" required /></div>
@@ -642,22 +618,23 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
     }
   };
 
-const handleRequestPickup = async (studentId: string) => {
-  // 1. Actualización optimista (UI inmediata)
-  setStudents(prev => prev.map(s => s.id === studentId ? { ...s, pickupAuthorization: PickupAuthStatus.PENDING } : s));
-  
-  try {
-    // 2. Actualización en Firebase (Esto disparará la notificación en el hijo)
-    const studentRef = doc(db, "students", studentId);
-    await updateDoc(studentRef, { 
-      pickupAuthorization: 'PENDING' 
-    });
-    alert("Solicitud enviada al dispositivo del estudiante.");
-  } catch (error) {
-    console.error("Error al solicitar salida:", error);
-    alert("Hubo un error al enviar la solicitud.");
-  }
-};
+  // --- FUNCIÓN ACTUALIZADA Y CORREGIDA ---
+  const handleRequestPickup = async (studentId: string) => {
+    // 1. Actualización optimista (UI)
+    setStudents(prev => prev.map(s => s.id === studentId ? { ...s, pickupAuthorization: PickupAuthStatus.PENDING } : s));
+    
+    // 2. Actualización Real en Firebase
+    try {
+      const studentRef = doc(db, "students", studentId);
+      await updateDoc(studentRef, { 
+        pickupAuthorization: 'PENDING' 
+      });
+      alert("Solicitud enviada al dispositivo del estudiante.");
+    } catch (error) {
+      console.error("Error al solicitar salida:", error);
+      alert("Hubo un error al enviar la solicitud.");
+    }
+  };
 
   return (
     <div className={`flex h-screen overflow-hidden transition-colors duration-300 ${isDarkMode ? 'bg-gray-900' : 'bg-[#F3F5F7]'}`}>
@@ -698,7 +675,6 @@ const handleRequestPickup = async (studentId: string) => {
         <div className="flex-1 overflow-auto p-4 lg:p-6">
           {activeTab === 'settings' ? (
              <div className="max-w-2xl mx-auto space-y-6">
-                {/* ... (SETTINGS VIEW SIN CAMBIOS) ... */}
                 <div className={`p-6 rounded-2xl border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
                    <h3 className={`font-bold mb-4 ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Apariencia</h3>
                    <div className="flex items-center justify-between">
@@ -706,7 +682,6 @@ const handleRequestPickup = async (studentId: string) => {
                       <button onClick={toggleTheme} className={`w-14 h-8 rounded-full p-1 transition-colors flex items-center ${isDarkMode ? 'bg-blue-600 justify-end' : 'bg-gray-200 justify-start'}`}><div className="w-6 h-6 bg-white rounded-full shadow-sm"></div></button>
                    </div>
                 </div>
-                {/* ... Detalle Perfil ... */}
                 <button onClick={handleLogout} className="w-full py-3 text-red-500 bg-red-50 hover:bg-red-100 rounded-xl font-bold transition-colors">Cerrar Sesión</button>
              </div>
           ) : (
@@ -724,10 +699,9 @@ const handleRequestPickup = async (studentId: string) => {
                   </div>
                 </div>
 
-                {/* STUDENT CARDS: Renderiza solo los visibles */}
+                {/* STUDENT CARDS */}
                 <div className="space-y-4">
                   {visibleStudents.map((student) => {
-                    // Check if this student is linked to the current parent
                     const isLinked = (currentUserParent as any)?.linkedStudentId === student.id;
 
                     return (
@@ -744,7 +718,6 @@ const handleRequestPickup = async (studentId: string) => {
                             <img src={student.avatarUrl} alt={student.name} className="w-14 h-14 rounded-full object-cover ring-4 ring-gray-100" />
                             <div>
                               <h3 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{student.name}</h3>
-                              
                               <div className="flex flex-wrap items-center gap-2 mt-1">
                                  <p className="text-xs text-gray-500">{student.grade} "{student.section}"</p>
                                  {student.currentActivity && (
@@ -762,7 +735,6 @@ const handleRequestPickup = async (studentId: string) => {
                                    </span>
                                  )}
                               </div>
-
                             </div>
                           </div>
                           
@@ -781,7 +753,6 @@ const handleRequestPickup = async (studentId: string) => {
                           </span>
                         </div>
 
-                        {/* Solo mostramos acciones de salida si está vinculado */}
                         <div className={`pt-4 border-t flex items-center justify-between ${isDarkMode ? 'border-gray-700' : 'border-gray-100'}`}>
                             <div className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                {student.pickupAuthorization === PickupAuthStatus.PENDING 
@@ -801,7 +772,6 @@ const handleRequestPickup = async (studentId: string) => {
                               </button>
                             )}
                             
-                            {/* Si no está vinculado, mostramos un indicador visual simple */}
                             {!isLinked && (
                                <span className="text-gray-400 text-xs italic">Solo lectura</span>
                             )}
@@ -817,7 +787,6 @@ const handleRequestPickup = async (studentId: string) => {
                   })}
                 </div>
 
-                {/* BOTONES DE PAGINACIÓN */}
                 <div className="flex justify-center gap-4 py-4">
                    {hasMore && (
                      <button 
@@ -838,7 +807,6 @@ const handleRequestPickup = async (studentId: string) => {
                    )}
                 </div>
 
-                {/* ... (WIDGETS DE HORARIO Y VINCULAR IGUAL QUE ANTES) ... */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                    {SCHEDULE_ITEMS.map((item, idx) => (
                      <div key={idx} className={`p-4 rounded-2xl border shadow-sm flex items-center justify-between ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>

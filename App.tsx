@@ -7,7 +7,8 @@ import { StudentDetailModal } from './components/StudentDetailModal';
 import { INITIAL_STUDENTS, SCHEDULE_ITEMS, INITIAL_PARENTS } from './constants';
 import { Student, StudentStatus, PickupAuthStatus, UserRole, SurveyData, Parent, StudentActivity } from './types';
 import { db } from './firebaseConfig';
-import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
+// IMPORTANTE: Agregamos updateDoc y doc para poder guardar los cambios
+import { collection, addDoc, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
 
 const App: React.FC = () => {
   // --- DATABASE STATE (Simulated Persistence) ---
@@ -72,12 +73,10 @@ const App: React.FC = () => {
       try {
         const session = JSON.parse(savedSession);
         
-        // Restaurar lista de estudiantes
         if (session.students && session.students.length > 0) {
           setStudents(session.students);
         }
         
-        // Restaurar usuario
         if (session.role === 'PARENT') {
            setCurrentUserParent(session.userData);
            setUserRole('PARENT');
@@ -100,7 +99,6 @@ const App: React.FC = () => {
 
   // --- FUNCIONES AUXILIARES ---
   
-  // Guardar sesión en localStorage
   const saveSession = (role: UserRole, userData: any, currentStudents: Student[]) => {
     localStorage.setItem('coar_session', JSON.stringify({
       role,
@@ -109,7 +107,6 @@ const App: React.FC = () => {
     }));
   };
 
-  // Cerrar sesión
   const handleLogout = () => {
     localStorage.removeItem('coar_session');
     setUserRole(null);
@@ -121,24 +118,36 @@ const App: React.FC = () => {
 
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
-  // --- HANDLER: ACTUALIZAR ACTIVIDAD ESTUDIANTE (TIEMPO REAL) ---
-  const handleUpdateActivity = (activity: StudentActivity) => {
-    // 1. Actualizar estado local
+  // --- HANDLER: ACTUALIZAR ACTIVIDAD ESTUDIANTE (CON GUARDADO EN BD) ---
+  const handleUpdateActivity = async (activity: StudentActivity) => {
+    // 1. Actualizar estado local (para que el estudiante lo vea rápido)
     const updatedStudents = students.map(s => 
        s.id === currentStudentId ? { ...s, currentActivity: activity } : s
     );
     setStudents(updatedStudents);
 
-    // 2. Persistir si la sesión está guardada (solo si soy estudiante)
     const myStudent = updatedStudents.find(s => s.id === currentStudentId);
     
-    // Si la sesión existe en localStorage, actualizamos los datos allí también
+    // 2. Actualizar localStorage (Persistencia local)
     const savedSession = localStorage.getItem('coar_session');
     if (savedSession && userRole === 'STUDENT' && myStudent) {
        saveSession('STUDENT', myStudent, updatedStudents);
     }
     
-    // NOTA: Aquí iría también la llamada a Firebase: updateDoc(doc(db, "students", currentStudentId), { currentActivity: activity })
+    // 3. ACTUALIZAR FIREBASE (Persistencia Real para que el padre lo vea)
+    if (currentStudentId) {
+      try {
+        const studentRef = doc(db, "students", currentStudentId);
+        await updateDoc(studentRef, { 
+          currentActivity: activity,
+          // Opcional: Actualizar texto de estado general también si deseas
+          statusText: activity === 'CLASSES' ? 'En Clases' : activity === 'FREE' ? 'Tiempo Libre' : 'Salida'
+        });
+        console.log("Actividad guardada en Firebase:", activity);
+      } catch (error) {
+        console.error("Error al guardar actividad en BD:", error);
+      }
+    }
   };
 
   // --- HANDLERS AUTH ---
@@ -154,12 +163,12 @@ const App: React.FC = () => {
         const querySnapshot = await getDocs(q);
 
         if (!querySnapshot.empty) {
-          const doc = querySnapshot.docs[0];
-          const parentData = { ...doc.data(), id: doc.id } as Parent; 
+          const docSnap = querySnapshot.docs[0];
+          const parentData = { ...docSnap.data(), id: docSnap.id } as Parent; 
           
           let updatedStudents = [...students];
           
-          // Lógica de vinculación al login
+          // Lógica de vinculación: Traer datos frescos del hijo
           if ((parentData as any).linkedStudentId) {
              const studentId = (parentData as any).linkedStudentId;
              const studentRef = query(collection(db, "students"), where("__name__", "==", studentId));
@@ -168,7 +177,7 @@ const App: React.FC = () => {
              if (!studentSnap.empty) {
                 const sDoc = studentSnap.docs[0];
                 const linkedStudent = { ...sDoc.data(), id: sDoc.id } as Student;
-                // Poner al hijo vinculado primero
+                // Ponemos al hijo vinculado primero
                 updatedStudents = [linkedStudent, ...students.filter(s => s.id !== linkedStudent.id)];
                 setStudents(updatedStudents);
              }
@@ -187,8 +196,8 @@ const App: React.FC = () => {
           const codeSnapshot = await getDocs(qCode);
           
           if (!codeSnapshot.empty) {
-             const doc = codeSnapshot.docs[0];
-             const parentData = { ...doc.data(), id: doc.id } as Parent;
+             const docSnap = codeSnapshot.docs[0];
+             const parentData = { ...docSnap.data(), id: docSnap.id } as Parent;
              setCurrentUserParent(parentData);
              setUserRole('PARENT');
              
@@ -204,12 +213,12 @@ const App: React.FC = () => {
         const querySnapshot = await getDocs(q);
 
         if (!querySnapshot.empty) {
-          const doc = querySnapshot.docs[0];
-          const studentData = { ...doc.data(), id: doc.id } as Student;
+          const docSnap = querySnapshot.docs[0];
+          const studentData = { ...docSnap.data(), id: docSnap.id } as Student;
           
           const newStudentList = [studentData];
           setStudents(newStudentList); 
-          setCurrentStudentId(doc.id);
+          setCurrentStudentId(docSnap.id);
           setUserRole('STUDENT');
 
           if (keepSession) {
@@ -239,7 +248,6 @@ const App: React.FC = () => {
     }
 
     try {
-      // 1. Verificar duplicados
       const q = query(collection(db, "parents"), where("dni", "==", parentRegData.dni));
       const querySnapshot = await getDocs(q);
 
@@ -249,7 +257,6 @@ const App: React.FC = () => {
         return;
       }
 
-      // 2. Verificar vinculación por Código Familiar
       let linkedStudentData: Student | null = null;
       if (parentRegData.familyCode) {
          const cleanCode = parentRegData.familyCode.trim().toUpperCase();
@@ -266,7 +273,6 @@ const App: React.FC = () => {
          }
       }
 
-      // 3. Crear Padre
       const newCode = `FAM-${Math.floor(1000 + Math.random() * 9000)}`;
       const newParent = {
         name: parentRegData.name,
@@ -282,14 +288,12 @@ const App: React.FC = () => {
 
       await addDoc(collection(db, "parents"), newParent);
 
-      // 4. Actualizar lista estudiantes (hijo vinculado primero)
       let updatedStudents = [...students];
       if (linkedStudentData) {
          updatedStudents = [linkedStudentData, ...students.filter(s => s.id !== linkedStudentData!.id)];
          setStudents(updatedStudents);
       }
 
-      // 5. Auto Login y Guardar Sesión
       setCurrentUserParent(newParent as any);
       setUserRole('PARENT');
       
@@ -355,7 +359,7 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
         pickupAuthorization: 'NONE',
         linkCode: generatedLinkCode,
         weeklySurvey: { completed: false, destination: '', transportMethod: 'OTHER', healthStatus: 'GOOD', comments: '' },
-        currentActivity: null, // Inicialmente null
+        currentActivity: null,
         createdAt: new Date().toISOString()
       };
 
@@ -483,7 +487,7 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
             </>
           ) : (
             <div className="p-6 h-[500px] overflow-y-auto custom-scrollbar">
-               <div className={`flex items-center gap-2 mb-4 sticky top-0 z-10 py-2 border-b ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-50'}`}>
+               <div className={`flex items-center gap-2 mb-4 sticky top-0 z-10 py-2 border-b ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100'}`}>
                  <button onClick={() => setIsRegistering(false)} className={`p-2 rounded-full ${isDarkMode ? 'hover:bg-gray-700 text-white' : 'hover:bg-gray-100 text-gray-500'}`}>
                    <Icons.Close className="w-4 h-4" />
                  </button>
@@ -783,14 +787,14 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
                           <div>
                             <h3 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{student.name}</h3>
                             
-                            {/* ESTADO DE ACTIVIDAD DEL ESTUDIANTE */}
-                            <div className="flex items-center gap-2 mt-1">
-                               <p className="text-xs text-gray-500">{student.grade} grado "{student.section}"</p>
+                            {/* ESTADO DE ACTIVIDAD DEL ESTUDIANTE (VISUALIZACIÓN) */}
+                            <div className="flex flex-wrap items-center gap-2 mt-1">
+                               <p className="text-xs text-gray-500">{student.grade} "{student.section}"</p>
                                {student.currentActivity && (
-                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded flex items-center gap-1 ${
-                                   student.currentActivity === 'CLASSES' ? 'bg-blue-100 text-blue-700' :
-                                   student.currentActivity === 'FREE' ? 'bg-green-100 text-green-700' :
-                                   'bg-orange-100 text-orange-700'
+                                 <span className={`text-[9px] font-bold px-2 py-0.5 rounded flex items-center gap-1 uppercase tracking-wide border ${
+                                   student.currentActivity === 'CLASSES' ? 'bg-blue-50 text-blue-700 border-blue-100' :
+                                   student.currentActivity === 'FREE' ? 'bg-green-50 text-green-700 border-green-100' :
+                                   'bg-orange-50 text-orange-700 border-orange-100'
                                  }`}>
                                    {student.currentActivity === 'CLASSES' && <Icons.Layers className="w-3 h-3"/>}
                                    {student.currentActivity === 'FREE' && <Icons.Sun className="w-3 h-3"/>}

@@ -5,7 +5,7 @@ import { Icons } from './components/Icons';
 import { StudentPortal } from './components/StudentPortal';
 import { StudentDetailModal } from './components/StudentDetailModal';
 import { INITIAL_STUDENTS, SCHEDULE_ITEMS, INITIAL_PARENTS } from './constants';
-import { Student, StudentStatus, PickupAuthStatus, UserRole, SurveyData, Parent } from './types';
+import { Student, StudentStatus, PickupAuthStatus, UserRole, SurveyData, Parent, StudentActivity } from './types';
 import { db } from './firebaseConfig';
 import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
 
@@ -20,7 +20,6 @@ const App: React.FC = () => {
   const [currentStudentId, setCurrentStudentId] = useState<string>('');
   
   // --- UI STATE (PERSISTENCIA MODO OSCURO) ---
-  // 1. Inicializamos leyendo localStorage para ver si ya estaba en oscuro
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const savedTheme = localStorage.getItem('coar_theme');
     return savedTheme === 'dark';
@@ -93,13 +92,15 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // 2. GUARDAR PREFERENCIA DE TEMA (NUEVO)
+  // 2. GUARDAR PREFERENCIA DE TEMA
   useEffect(() => {
     localStorage.setItem('coar_theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
 
 
   // --- FUNCIONES AUXILIARES ---
+  
+  // Guardar sesión en localStorage
   const saveSession = (role: UserRole, userData: any, currentStudents: Student[]) => {
     localStorage.setItem('coar_session', JSON.stringify({
       role,
@@ -108,6 +109,7 @@ const App: React.FC = () => {
     }));
   };
 
+  // Cerrar sesión
   const handleLogout = () => {
     localStorage.removeItem('coar_session');
     setUserRole(null);
@@ -119,7 +121,27 @@ const App: React.FC = () => {
 
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
-  // --- HANDLERS ---
+  // --- HANDLER: ACTUALIZAR ACTIVIDAD ESTUDIANTE (TIEMPO REAL) ---
+  const handleUpdateActivity = (activity: StudentActivity) => {
+    // 1. Actualizar estado local
+    const updatedStudents = students.map(s => 
+       s.id === currentStudentId ? { ...s, currentActivity: activity } : s
+    );
+    setStudents(updatedStudents);
+
+    // 2. Persistir si la sesión está guardada (solo si soy estudiante)
+    const myStudent = updatedStudents.find(s => s.id === currentStudentId);
+    
+    // Si la sesión existe en localStorage, actualizamos los datos allí también
+    const savedSession = localStorage.getItem('coar_session');
+    if (savedSession && userRole === 'STUDENT' && myStudent) {
+       saveSession('STUDENT', myStudent, updatedStudents);
+    }
+    
+    // NOTA: Aquí iría también la llamada a Firebase: updateDoc(doc(db, "students", currentStudentId), { currentActivity: activity })
+  };
+
+  // --- HANDLERS AUTH ---
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
@@ -137,6 +159,7 @@ const App: React.FC = () => {
           
           let updatedStudents = [...students];
           
+          // Lógica de vinculación al login
           if ((parentData as any).linkedStudentId) {
              const studentId = (parentData as any).linkedStudentId;
              const studentRef = query(collection(db, "students"), where("__name__", "==", studentId));
@@ -145,6 +168,7 @@ const App: React.FC = () => {
              if (!studentSnap.empty) {
                 const sDoc = studentSnap.docs[0];
                 const linkedStudent = { ...sDoc.data(), id: sDoc.id } as Student;
+                // Poner al hijo vinculado primero
                 updatedStudents = [linkedStudent, ...students.filter(s => s.id !== linkedStudent.id)];
                 setStudents(updatedStudents);
              }
@@ -158,7 +182,7 @@ const App: React.FC = () => {
           }
 
         } else {
-          // Intento por Código de Familia
+          // Intento por Código de Familia (Legacy)
           const qCode = query(collection(db, "parents"), where("familyCode", "==", authInput));
           const codeSnapshot = await getDocs(qCode);
           
@@ -215,6 +239,7 @@ const App: React.FC = () => {
     }
 
     try {
+      // 1. Verificar duplicados
       const q = query(collection(db, "parents"), where("dni", "==", parentRegData.dni));
       const querySnapshot = await getDocs(q);
 
@@ -224,6 +249,7 @@ const App: React.FC = () => {
         return;
       }
 
+      // 2. Verificar vinculación por Código Familiar
       let linkedStudentData: Student | null = null;
       if (parentRegData.familyCode) {
          const cleanCode = parentRegData.familyCode.trim().toUpperCase();
@@ -240,6 +266,7 @@ const App: React.FC = () => {
          }
       }
 
+      // 3. Crear Padre
       const newCode = `FAM-${Math.floor(1000 + Math.random() * 9000)}`;
       const newParent = {
         name: parentRegData.name,
@@ -255,12 +282,14 @@ const App: React.FC = () => {
 
       await addDoc(collection(db, "parents"), newParent);
 
+      // 4. Actualizar lista estudiantes (hijo vinculado primero)
       let updatedStudents = [...students];
       if (linkedStudentData) {
          updatedStudents = [linkedStudentData, ...students.filter(s => s.id !== linkedStudentData!.id)];
          setStudents(updatedStudents);
       }
 
+      // 5. Auto Login y Guardar Sesión
       setCurrentUserParent(newParent as any);
       setUserRole('PARENT');
       
@@ -326,6 +355,7 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
         pickupAuthorization: 'NONE',
         linkCode: generatedLinkCode,
         weeklySurvey: { completed: false, destination: '', transportMethod: 'OTHER', healthStatus: 'GOOD', comments: '' },
+        currentActivity: null, // Inicialmente null
         createdAt: new Date().toISOString()
       };
 
@@ -465,6 +495,7 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
                {loginTab === 'PARENT' ? (
                  /* Parent Reg Form */
                  <form onSubmit={handleRegisterParent} className="space-y-4">
+                   {/* CAMPO: CÓDIGO FAMILIAR */}
                    <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl">
                       <label className="text-[10px] font-bold text-blue-800 ml-1 flex items-center gap-1">
                         <Icons.Shield className="w-3 h-3"/> CÓDIGO FAMILIAR (DEL ESTUDIANTE)
@@ -623,6 +654,7 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
         onLogout={handleLogout}
         onRespondPickup={handleStudentResponse}
         onSubmitSurvey={handleSurveySubmit}
+        onUpdateActivity={handleUpdateActivity}
       />
     );
   }
@@ -741,7 +773,7 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
                   </div>
                 </div>
 
-                {/* Student Cards */}
+                {/* Student Cards (CON ESTADO DE ACTIVIDAD ACTUALIZADO) */}
                 <div className="space-y-4">
                   {students.map((student) => (
                     <div key={student.id} className={`p-5 rounded-2xl border shadow-sm transition-all ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100'}`}>
@@ -750,12 +782,26 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
                           <img src={student.avatarUrl} alt={student.name} className="w-14 h-14 rounded-full object-cover ring-4 ring-gray-100" />
                           <div>
                             <h3 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{student.name}</h3>
-                            <p className="text-xs text-gray-500">{student.grade} grado "{student.section}"</p>
-                            <div className="flex gap-2 mt-1.5">
-                               <span className={`text-[10px] px-2 py-0.5 rounded-md border font-medium flex items-center ${isDarkMode ? 'bg-gray-700 text-gray-300 border-gray-600' : 'bg-gray-100 text-gray-600 border-gray-200'}`}>
-                                  <Icons.BatteryMedium className="w-3 h-3 mr-1" /> {student.batteryLevel}%
-                               </span>
+                            
+                            {/* ESTADO DE ACTIVIDAD DEL ESTUDIANTE */}
+                            <div className="flex items-center gap-2 mt-1">
+                               <p className="text-xs text-gray-500">{student.grade} grado "{student.section}"</p>
+                               {student.currentActivity && (
+                                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded flex items-center gap-1 ${
+                                   student.currentActivity === 'CLASSES' ? 'bg-blue-100 text-blue-700' :
+                                   student.currentActivity === 'FREE' ? 'bg-green-100 text-green-700' :
+                                   'bg-orange-100 text-orange-700'
+                                 }`}>
+                                   {student.currentActivity === 'CLASSES' && <Icons.Layers className="w-3 h-3"/>}
+                                   {student.currentActivity === 'FREE' && <Icons.Sun className="w-3 h-3"/>}
+                                   {student.currentActivity === 'EXIT' && <Icons.Bus className="w-3 h-3"/>}
+                                   
+                                   {student.currentActivity === 'CLASSES' ? 'EN CLASES' :
+                                    student.currentActivity === 'FREE' ? 'TIEMPO LIBRE' : 'SALIDA'}
+                                 </span>
+                               )}
                             </div>
+
                           </div>
                         </div>
                         <span className={`px-3 py-1 rounded-full text-xs font-semibold border flex items-center ${

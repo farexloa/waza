@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Icons } from './Icons';
-import { Student, PickupAuthStatus, SurveyData } from '../types';
+import { Student, PickupAuthStatus, SurveyData, StudentActivity } from '../types';
 import { MOCK_USER } from '../constants';
 import { SurveyForm } from './SurveyForm';
 
@@ -9,13 +9,19 @@ interface StudentPortalProps {
   onLogout: () => void;
   onRespondPickup: (approved: boolean) => void;
   onSubmitSurvey?: (data: SurveyData) => void;
+  onUpdateActivity?: (activity: StudentActivity) => void; // Nueva prop para actualizar actividad
 }
 
-export const StudentPortal: React.FC<StudentPortalProps> = ({ student, onLogout, onRespondPickup, onSubmitSurvey }) => {
+export const StudentPortal: React.FC<StudentPortalProps> = ({ 
+  student, 
+  onLogout, 
+  onRespondPickup, 
+  onSubmitSurvey,
+  onUpdateActivity // Recibimos la función
+}) => {
   const [activeTab, setActiveTab] = useState('home');
 
   // --- 1. ESTADO DE BLOQUEO: SOLICITUD PENDIENTE ---
-  // Se muestra como un modal elegante centrado, funciona bien en PC y Móvil
   if (student.pickupAuthorization === PickupAuthStatus.PENDING) {
     return (
       <div className="min-h-screen bg-gray-900/95 backdrop-blur-sm flex items-center justify-center p-4">
@@ -103,12 +109,29 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ student, onLogout,
     );
   }
 
-  // --- 3. DASHBOARD PRINCIPAL (Layout Híbrido: Sidebar en PC / Bottom Nav en Móvil) ---
+  // --- HELPER PARA BOTONES DE ACTIVIDAD ---
+  const renderActivityButton = (type: StudentActivity, label: string, icon: any, colorClass: string, activeBgClass: string) => {
+    const isActive = student.currentActivity === type;
+    return (
+      <button
+        onClick={() => onUpdateActivity && onUpdateActivity(type)}
+        className={`flex-1 p-4 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-2 ${
+          isActive 
+            ? `${activeBgClass} border-transparent text-white shadow-lg scale-105 ring-2 ring-offset-2 ring-blue-100` 
+            : `bg-white border-gray-100 text-gray-400 hover:border-gray-200 hover:bg-gray-50`
+        }`}
+      >
+        {React.createElement(icon, { className: `w-6 h-6 ${isActive ? 'text-white' : colorClass}` })}
+        <span className="text-[10px] font-bold uppercase tracking-wide">{label}</span>
+      </button>
+    );
+  };
+
+  // --- 3. DASHBOARD PRINCIPAL ---
   return (
     <div className="flex h-screen w-full bg-[#F3F5F7] overflow-hidden">
       
       {/* === SIDEBAR (SOLO PC) === */}
-      {/* Se oculta en móvil (hidden) y se muestra en pantallas grandes (lg:flex) */}
       <aside className="hidden lg:flex w-72 bg-white border-r border-gray-200 flex-col z-20 shadow-sm">
         {/* Sidebar Header */}
         <div className="p-6 flex items-center gap-3">
@@ -201,7 +224,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ student, onLogout,
         </header>
 
         {/* CONTENIDO SCROLLABLE */}
-        {/* Aquí es donde ocurre la magia: grid responsivo */}
         <div className="flex-1 overflow-y-auto p-4 lg:p-8 pb-24 lg:pb-8">
            <div className="max-w-5xl mx-auto">
               
@@ -232,6 +254,19 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ student, onLogout,
                             <p className="text-2xl font-mono font-bold tracking-widest">{student.linkCode}</p>
                          </div>
                       </div>
+                  </div>
+
+                  {/* === SECCIÓN DE ACTIVIDAD EN TIEMPO REAL (NUEVO) === */}
+                  <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm animate-in fade-in slide-in-from-bottom-4 duration-500">
+                     <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
+                        <Icons.Refresh className={`w-4 h-4 ${student.currentActivity ? 'text-green-500' : 'text-gray-400'}`} />
+                        ¿Qué estás haciendo en este momento?
+                     </h3>
+                     <div className="flex gap-4">
+                        {renderActivityButton('CLASSES', 'En Clases', Icons.Layers, 'text-blue-500', 'bg-blue-500')}
+                        {renderActivityButton('FREE', 'Libre', Icons.Sun, 'text-green-500', 'bg-green-500')}
+                        {renderActivityButton('EXIT', 'Salida', Icons.Bus, 'text-orange-500', 'bg-orange-500')}
+                     </div>
                   </div>
 
                   {/* Grid de Widgets */}
@@ -307,7 +342,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ student, onLogout,
         </div>
 
         {/* === BOTTOM NAVIGATION (SOLO MÓVIL) === */}
-        {/* Se muestra en móvil (flex) y se oculta en PC (lg:hidden) */}
         <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-6 py-3 pb-6 flex justify-around items-center z-30 shadow-[0_-5px_20px_rgba(0,0,0,0.05)]">
            <button 
              onClick={() => setActiveTab('home')}

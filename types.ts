@@ -5,6 +5,27 @@ export enum StudentStatus {
   DELAYED = 'DELAYED',   // Rojo: Retraso
   NORMAL = 'NORMAL'      // Estado base (Conectado)
 }
+// Agrega esto en tu archivo types.ts
+
+export type StudentActivity = 'CLASSES' | 'FREE' | 'EXIT' | null;
+
+// Modifica la interfaz Student para incluir currentActivity
+export interface Student {
+  id: string;
+  name: string;
+  // ... (otros campos existentes)
+  grade: '3ro' | '4to' | '5to';
+  section: 'A' | 'B' | 'C' | 'D';
+  avatarUrl: string;
+  status: StudentStatus;
+  statusText: string; 
+  // ...
+  
+  // NUEVO CAMPO:
+  currentActivity?: StudentActivity; // Puede ser null si no ha marcado nada
+  
+  // ... resto de campos
+}
 
 export enum PickupAuthStatus {
   NONE = 'NONE',           // No solicitado

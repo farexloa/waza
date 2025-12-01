@@ -7,8 +7,8 @@ import { StudentDetailModal } from './components/StudentDetailModal';
 import { INITIAL_STUDENTS, SCHEDULE_ITEMS, INITIAL_PARENTS } from './constants';
 import { Student, StudentStatus, PickupAuthStatus, UserRole, SurveyData, Parent, StudentActivity } from './types';
 import { db } from './firebaseConfig';
-// IMPORTANTE: Agregamos updateDoc y doc para poder guardar los cambios
-import { collection, addDoc, query, where, getDocs, updateDoc, doc } from 'firebase/firestore';
+// IMPORTANTE: Agregamos onSnapshot para escuchar cambios en tiempo real
+import { collection, addDoc, query, where, getDocs, updateDoc, doc, onSnapshot } from 'firebase/firestore';
 
 const App: React.FC = () => {
   // --- DATABASE STATE (Simulated Persistence) ---
@@ -91,7 +91,39 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // 2. GUARDAR PREFERENCIA DE TEMA
+  // 2. ESCUCHAR CAMBIOS EN TIEMPO REAL (NUEVO)
+  // Si soy padre y tengo un hijo vinculado, escucho sus cambios en la BD
+  useEffect(() => {
+    let unsubscribe: () => void;
+
+    if (userRole === 'PARENT' && currentUserParent && (currentUserParent as any).linkedStudentId) {
+      const studentId = (currentUserParent as any).linkedStudentId;
+      console.log("Escuchando cambios para el estudiante:", studentId);
+
+      const studentRef = doc(db, "students", studentId);
+      
+      unsubscribe = onSnapshot(studentRef, (docSnapshot) => {
+        if (docSnapshot.exists()) {
+          const updatedStudent = { ...docSnapshot.data(), id: docSnapshot.id } as Student;
+          
+          // Actualizamos la lista local de estudiantes
+          setStudents(prev => {
+             // Reemplazamos el estudiante actualizado en la lista
+             const otherStudents = prev.filter(s => s.id !== updatedStudent.id);
+             // Lo ponemos primero
+             return [updatedStudent, ...otherStudents];
+          });
+        }
+      });
+    }
+
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [userRole, currentUserParent]);
+
+
+  // 3. GUARDAR PREFERENCIA DE TEMA
   useEffect(() => {
     localStorage.setItem('coar_theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
@@ -120,30 +152,28 @@ const App: React.FC = () => {
 
   // --- HANDLER: ACTUALIZAR ACTIVIDAD ESTUDIANTE (CON GUARDADO EN BD) ---
   const handleUpdateActivity = async (activity: StudentActivity) => {
-    // 1. Actualizar estado local (para que el estudiante lo vea rápido)
+    // 1. Actualizar estado local (feedback inmediato)
     const updatedStudents = students.map(s => 
        s.id === currentStudentId ? { ...s, currentActivity: activity } : s
     );
     setStudents(updatedStudents);
 
+    // 2. Persistir en localStorage si es necesario
     const myStudent = updatedStudents.find(s => s.id === currentStudentId);
-    
-    // 2. Actualizar localStorage (Persistencia local)
     const savedSession = localStorage.getItem('coar_session');
     if (savedSession && userRole === 'STUDENT' && myStudent) {
        saveSession('STUDENT', myStudent, updatedStudents);
     }
     
-    // 3. ACTUALIZAR FIREBASE (Persistencia Real para que el padre lo vea)
+    // 3. ACTUALIZAR FIREBASE (CRÍTICO)
     if (currentStudentId) {
       try {
         const studentRef = doc(db, "students", currentStudentId);
         await updateDoc(studentRef, { 
           currentActivity: activity,
-          // Opcional: Actualizar texto de estado general también si deseas
-          statusText: activity === 'CLASSES' ? 'En Clases' : activity === 'FREE' ? 'Tiempo Libre' : 'Salida'
+          // Actualizamos también el texto para que sea consistente
+          statusText: activity === 'CLASSES' ? 'En Clases' : activity === 'FREE' ? 'Libre' : activity === 'EXIT' ? 'Salida' : 'En línea'
         });
-        console.log("Actividad guardada en Firebase:", activity);
       } catch (error) {
         console.error("Error al guardar actividad en BD:", error);
       }
@@ -168,16 +198,18 @@ const App: React.FC = () => {
           
           let updatedStudents = [...students];
           
-          // Lógica de vinculación: Traer datos frescos del hijo
+          // Lógica de vinculación inicial
           if ((parentData as any).linkedStudentId) {
              const studentId = (parentData as any).linkedStudentId;
-             const studentRef = query(collection(db, "students"), where("__name__", "==", studentId));
-             const studentSnap = await getDocs(studentRef);
+             // Obtenemos los datos más frescos posible
+             const studentRef = doc(db, "students", studentId);
+             // Usamos getDoc para obtener un solo documento por ID si es posible, pero query funciona bien
+             const qStudent = query(collection(db, "students"), where("__name__", "==", studentId));
+             const studentSnap = await getDocs(qStudent);
              
              if (!studentSnap.empty) {
                 const sDoc = studentSnap.docs[0];
                 const linkedStudent = { ...sDoc.data(), id: sDoc.id } as Student;
-                // Ponemos al hijo vinculado primero
                 updatedStudents = [linkedStudent, ...students.filter(s => s.id !== linkedStudent.id)];
                 setStudents(updatedStudents);
              }

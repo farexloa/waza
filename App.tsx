@@ -59,45 +59,67 @@ const App: React.FC = () => {
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
 
   // --- HANDLERS ---
-
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
     setIsLoggingIn(true);
 
-    setTimeout(() => {
+    try {
       if (loginTab === 'PARENT') {
-        // Validate against Parents "Database"
-        // Check if code matches 'familyCode' OR 'dni' OR 'admin'
-        const foundParent = parents.find(p => 
-          p.familyCode === authInput || 
-          p.dni === authInput || 
-          (authInput === 'admin' && p.familyCode === 'admin')
-        );
-        
-        if (foundParent || authInput === 'admin') {
-          // If admin generic, take first parent
-          setCurrentUserParent(foundParent || parents[0]);
+        // --- LOGIN PADRES ---
+        // Busca en la colección 'parents' donde el 'dni' coincida
+        const q = query(collection(db, "parents"), where("dni", "==", authInput));
+        const querySnapshot = await getDocs(q);
+
+        if (!querySnapshot.empty) {
+          // Usuario encontrado en la base de datos
+          const doc = querySnapshot.docs[0];
+          const parentData = { ...doc.data(), id: doc.id }; 
+          
+          setCurrentUserParent(parentData as any);
           setUserRole('PARENT');
         } else {
-          setAuthError('Código o DNI no encontrado. Verifique sus datos.');
-          setIsLoggingIn(false);
+          // Si no encuentra por DNI, intentamos por Código de Familia (para mantener compatibilidad)
+          const qCode = query(collection(db, "parents"), where("familyCode", "==", authInput));
+          const codeSnapshot = await getDocs(qCode);
+          
+          if (!codeSnapshot.empty) {
+             const doc = codeSnapshot.docs[0];
+             const parentData = { ...doc.data(), id: doc.id };
+             setCurrentUserParent(parentData as any);
+             setUserRole('PARENT');
+          } else {
+             setAuthError('Usuario no encontrado. Verifique su DNI.');
+          }
         }
+
       } else {
-        // Validate against Student "Database" by DNI
-        const student = students.find(s => s.dni === authInput);
-        if (student) {
-          setCurrentStudentId(student.id);
+        // --- LOGIN ESTUDIANTES ---
+        // Busca en la colección 'students' donde el 'dni' coincida
+        const q = query(collection(db, "students"), where("dni", "==", authInput));
+        const querySnapshot = await getDocs(q);
+
+        if (!querySnapshot.empty) {
+          const doc = querySnapshot.docs[0];
+          const studentData = { ...doc.data(), id: doc.id };
+          
+          // Actualizamos la lista local para que el Portal funcione con este alumno
+          setStudents([studentData as any]); 
+          setCurrentStudentId(doc.id);
           setUserRole('STUDENT');
         } else {
-          setAuthError('DNI no encontrado. Regístrate si eres nuevo.');
-          setIsLoggingIn(false);
+          setAuthError('Estudiante no encontrado. Regístrate primero.');
         }
       }
-    }, 1000);
+    } catch (error) {
+      console.error("Error Login:", error);
+      setAuthError('Error de conexión. Intente nuevamente.');
+    } finally {
+      setIsLoggingIn(false);
+    }
   };
 
-  const handleRegisterParent = (e: React.FormEvent) => {
+ const handleRegisterParent = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
     setIsLoggingIn(true);
@@ -108,42 +130,51 @@ const App: React.FC = () => {
       return;
     }
 
-    if (parents.some(p => p.dni === parentRegData.dni)) {
-      setAuthError('Este DNI ya está registrado.');
-      setIsLoggingIn(false);
-      return;
-    }
+    try {
+      // 1. Verificar si ya existe en Firebase
+      const q = query(collection(db, "parents"), where("dni", "==", parentRegData.dni));
+      const querySnapshot = await getDocs(q);
 
-    // Generate Code
-    const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-    const newCode = `FAM-${randomSuffix}`;
+      if (!querySnapshot.empty) {
+        setAuthError('Este DNI ya está registrado.');
+        setIsLoggingIn(false);
+        return;
+      }
 
-    const newParent: Parent = {
-      id: `p-${Date.now()}`,
-      name: parentRegData.name,
-      dni: parentRegData.dni,
-      phone: parentRegData.phone,
-      address: parentRegData.address,
-      familyCode: newCode,
-      avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(parentRegData.name)}&background=random`,
-      role: 'Apoderado'
-    };
+      // 2. Crear datos y GUARDAR
+      const newCode = `FAM-${Math.floor(1000 + Math.random() * 9000)}`;
+      const newParent = {
+        name: parentRegData.name,
+        dni: parentRegData.dni,
+        phone: parentRegData.phone,
+        address: parentRegData.address,
+        familyCode: newCode,
+        avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(parentRegData.name)}&background=random`,
+        role: 'Apoderado',
+        createdAt: new Date().toISOString()
+      };
 
-    setTimeout(() => {
-      setParents([...parents, newParent]);
-      setCurrentUserParent(newParent);
+      await addDoc(collection(db, "parents"), newParent);
+
+      // 3. Entrar automáticamente
+      setCurrentUserParent(newParent as any);
+      setUserRole('PARENT');
       setRegisterSuccess(true);
+      
       setTimeout(() => {
-         setUserRole('PARENT');
          setIsLoggingIn(false);
          setRegisterSuccess(false);
          setIsRegistering(false);
-         // Alert user of their new code AND DNI option
-         alert(`¡Cuenta creada con éxito!\n\nPuedes ingresar usando tu DNI: ${parentRegData.dni}\nO tu Código de Familia generado: ${newCode}`);
-      }, 1500);
-    }, 1500);
-  };
+         alert(`¡Cuenta creada!\nUsa tu DNI ${parentRegData.dni} para volver a entrar.`);
+      }, 1000);
 
+    } catch (error) {
+      console.error("Error Registro:", error);
+      setAuthError("No se pudo guardar en la base de datos.");
+      setIsLoggingIn(false);
+    }
+  };
+  
   const handleRegisterStudent = (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');

@@ -19,21 +19,21 @@ export const AdminMenuEditor: React.FC<AdminMenuEditorProps> = ({ onLogout }) =>
   });
   const [isSaving, setIsSaving] = useState(false);
 
-  // Cargar menú actual al iniciar
+  // Cargar menú en tiempo real
   useEffect(() => {
     const menuRef = doc(db, "settings", "dailyMenu");
     const unsubscribe = onSnapshot(menuRef, (docSnap) => {
       if (docSnap.exists()) {
         const data = docSnap.data() as DailyMenu;
         setMenuData(data);
-        // Actualizar el input con el valor actual de la comida seleccionada
-        setDishName(data[selectedMeal] || '');
+        // Solo actualizamos el input si no estamos escribiendo activamente para evitar conflictos,
+        // o simplificamos actualizando cuando cambia la selección de comida.
       }
     });
     return () => unsubscribe();
-  }, [selectedMeal]); // Se ejecuta también cuando cambias de comida para actualizar el input
+  }, []);
 
-  // Actualizar el input cuando cambia la selección o los datos
+  // Actualizar el input cuando cambiamos de opción (Desayuno -> Almuerzo)
   useEffect(() => {
     setDishName(menuData[selectedMeal] || '');
   }, [selectedMeal, menuData]);
@@ -43,17 +43,14 @@ export const AdminMenuEditor: React.FC<AdminMenuEditorProps> = ({ onLogout }) =>
     setIsSaving(true);
     try {
       const menuRef = doc(db, "settings", "dailyMenu");
-      
-      // Guardamos todo el objeto actualizado
       const newMenuData = {
         ...menuData,
         [selectedMeal]: dishName
       };
-
       await setDoc(menuRef, newMenuData);
-      alert("¡Menú actualizado en tiempo real para todos los estudiantes!");
+      alert("¡Menú actualizado correctamente!");
     } catch (error) {
-      console.error("Error guardando menú:", error);
+      console.error("Error:", error);
       alert("Error al guardar.");
     } finally {
       setIsSaving(false);
@@ -79,20 +76,20 @@ export const AdminMenuEditor: React.FC<AdminMenuEditorProps> = ({ onLogout }) =>
              </div>
              <div>
                <h1 className="text-white font-bold text-lg">Editor de Menú</h1>
-               <p className="text-gray-400 text-xs">Panel de Administrador</p>
+               <p className="text-gray-400 text-xs">Modo Administrador</p>
              </div>
           </div>
-          <button onClick={onLogout} className="text-gray-400 hover:text-white">
-            <Icons.Close />
+          <button onClick={onLogout} className="text-gray-400 hover:text-white transition-colors">
+            <Icons.Close size={20} />
           </button>
         </div>
 
         <div className="p-8">
           <form onSubmit={handleSave} className="space-y-6">
             
-            {/* Selector de Comida */}
+            {/* 1. Selector */}
             <div className="space-y-2">
-              <label className="text-xs font-bold text-gray-500 uppercase">1. Selecciona el momento</label>
+              <label className="text-xs font-bold text-gray-500 uppercase">Selecciona turno</label>
               <div className="grid grid-cols-2 gap-3">
                 {mealOptions.map((option) => (
                   <button
@@ -112,42 +109,39 @@ export const AdminMenuEditor: React.FC<AdminMenuEditorProps> = ({ onLogout }) =>
               </div>
             </div>
 
-            {/* Input de Plato */}
+            {/* 2. Input */}
             <div className="space-y-2">
-               <label className="text-xs font-bold text-gray-500 uppercase">2. Nombre del Plato</label>
+               <label className="text-xs font-bold text-gray-500 uppercase">Nombre del Plato</label>
                <textarea
                  value={dishName}
                  onChange={(e) => setDishName(e.target.value)}
                  className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-900 resize-none h-32"
-                 placeholder={`Ej: Lentejas con arroz y ensalada...`}
+                 placeholder="Escribe el menú aquí..."
                />
             </div>
 
-            {/* Botón Guardar */}
+            {/* Botón */}
             <button
               type="submit"
               disabled={isSaving}
               className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
             >
               {isSaving ? <Icons.Refresh className="w-5 h-5 animate-spin" /> : <Icons.Check className="w-5 h-5" />}
-              Actualizar Menú
+              Publicar Cambios
             </button>
 
           </form>
 
-          {/* Preview Rápida */}
+          {/* Preview */}
           <div className="mt-8 pt-6 border-t border-gray-100">
-             <p className="text-xs font-bold text-gray-400 uppercase mb-3">Vista actual en Vivo:</p>
-             <div className="bg-orange-50 rounded-xl p-4 border border-orange-100">
-                <div className="grid grid-cols-1 gap-2 text-xs">
-                   <p><span className="font-bold text-orange-800">Desayuno:</span> {menuData.breakfast || '---'}</p>
-                   <p><span className="font-bold text-orange-800">Almuerzo:</span> {menuData.lunch || '---'}</p>
-                   <p><span className="font-bold text-orange-800">Cena:</span> {menuData.dinner || '---'}</p>
-                </div>
+             <p className="text-xs font-bold text-gray-400 uppercase mb-3">Menú Actual:</p>
+             <div className="bg-orange-50 rounded-xl p-4 border border-orange-100 text-xs space-y-1">
+                <p><span className="font-bold text-orange-800">Desayuno:</span> {menuData.breakfast || '---'}</p>
+                <p><span className="font-bold text-orange-800">Almuerzo:</span> {menuData.lunch || '---'}</p>
+                <p><span className="font-bold text-orange-800">Cena:</span> {menuData.dinner || '---'}</p>
              </div>
           </div>
         </div>
-
       </div>
     </div>
   );

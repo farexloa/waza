@@ -1,154 +1,120 @@
-import React, { useState, useEffect } from 'react';
-import { Icons } from './Icons';
-import { db } from '../firebaseConfig';
-import { doc, setDoc, onSnapshot } from 'firebase/firestore';
-import { DailyMenu } from '../types';
 
-interface AdminMenuEditorProps {
-  onLogout: () => void;
+export enum StudentStatus {
+  READY = 'READY',       // Verde: Listo para recoger
+  ON_WAY = 'ON_WAY',     // Amarillo: En camino / En clase
+  DELAYED = 'DELAYED',   // Rojo: Retraso
+  NORMAL = 'NORMAL'      // Estado base (Conectado)
+}
+// Agrega esto en tu archivo types.ts
+
+export type StudentActivity = 'CLASSES' | 'FREE' | 'EXIT' | null;
+
+// Modifica la interfaz Student para incluir currentActivity
+export interface Student {
+  id: string;
+  name: string;
+  // ... (otros campos existentes)
+  grade: '3ro' | '4to' | '5to';
+  section: 'A' | 'B' | 'C' | 'D';
+  avatarUrl: string;
+  status: StudentStatus;
+  statusText: string; 
+  // ...
+  
+  // NUEVO CAMPO:
+  currentActivity?: StudentActivity; // Puede ser null si no ha marcado nada
+  
+  // ... resto de campos
 }
 
-export const AdminMenuEditor: React.FC<AdminMenuEditorProps> = ({ onLogout }) => {
-  const [selectedMeal, setSelectedMeal] = useState<keyof DailyMenu>('lunch');
-  const [dishName, setDishName] = useState('');
-  const [menuData, setMenuData] = useState<DailyMenu>({
-    breakfast: '',
-    recess: '',
-    lunch: '',
-    dinner: ''
-  });
-  const [isSaving, setIsSaving] = useState(false);
+export enum PickupAuthStatus {
+  NONE = 'NONE',           // No solicitado
+  PENDING = 'PENDING',     // Solicitado, esperando aprobación del alumno
+  APPROVED = 'APPROVED',   // Alumno aceptó
+  REJECTED = 'REJECTED'    // Alumno rechazó
+}
 
-  // Cargar menú actual al iniciar
-  useEffect(() => {
-    const menuRef = doc(db, "settings", "dailyMenu");
-    const unsubscribe = onSnapshot(menuRef, (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data() as DailyMenu;
-        setMenuData(data);
-        // Actualizar el input con el valor actual de la comida seleccionada
-        setDishName(data[selectedMeal] || '');
-      }
-    });
-    return () => unsubscribe();
-  }, [selectedMeal]); // Se ejecuta también cuando cambias de comida para actualizar el input
+export type UserRole = 'PARENT' | 'STUDENT' | null;
+export type Theme = 'light' | 'dark';
 
-  // Actualizar el input cuando cambia la selección o los datos
-  useEffect(() => {
-    setDishName(menuData[selectedMeal] || '');
-  }, [selectedMeal, menuData]);
+export interface Coordinates {
+  lat: number;
+  lng: number;
+}
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSaving(true);
-    try {
-      const menuRef = doc(db, "settings", "dailyMenu");
-      
-      // Guardamos todo el objeto actualizado
-      const newMenuData = {
-        ...menuData,
-        [selectedMeal]: dishName
-      };
+export interface SurveyData {
+  completed: boolean;
+  destination: string;
+  transportMethod: 'BUS' | 'PARENT_CAR' | 'WALK' | 'OTHER';
+  healthStatus: 'GOOD' | 'SICK';
+  comments: string;
+  submittedAt?: string;
+}
 
-      await setDoc(menuRef, newMenuData);
-      alert("¡Menú actualizado en tiempo real para todos los estudiantes!");
-    } catch (error) {
-      console.error("Error guardando menú:", error);
-      alert("Error al guardar.");
-    } finally {
-      setIsSaving(false);
-    }
-  };
+export interface Parent {
+  id: string;
+  name: string;
+  dni: string;
+  phone: string;
+  address: string;
+  familyCode: string; // The code they use to login
+  avatarUrl: string;
+  role: 'Apoderado';
+}
 
-  const mealOptions: {key: keyof DailyMenu, label: string, icon: any}[] = [
-    { key: 'breakfast', label: 'Desayuno', icon: Icons.Sun },
-    { key: 'recess', label: 'Receso', icon: Icons.Check },
-    { key: 'lunch', label: 'Almuerzo', icon: Icons.Layers },
-    { key: 'dinner', label: 'Cena', icon: Icons.Moon },
-  ];
+export interface Student {
+  id: string;
+  name: string;
+  grade: '3ro' | '4to' | '5to';
+  section: 'A' | 'B' | 'C' | 'D';
+  avatarUrl: string;
+  status: StudentStatus;
+  statusText: string; 
+  deviceId: string; // Phone ID
+  batteryLevel: number;
+  pickupAuthorization: PickupAuthStatus;
+  location: Coordinates;
+  linkCode: string; // Code for parent to link
+  
+  // Survey Data
+  weeklySurvey: SurveyData;
+  
+  // Personal Info
+  dni: string;
+  originCity: string; // Donde viene
+  address: string;
+  birthDate: string;
+  bloodType: string;
+  
+  // AI Analysis Data
+  stressLevel: 'Bajo' | 'Medio' | 'Alto';
+  lastActivity: string;
+}
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
-      <div className="bg-white w-full max-w-lg rounded-3xl shadow-xl border border-gray-100 overflow-hidden">
-        
-        {/* Header */}
-        <div className="bg-gray-900 p-6 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-             <div className="bg-blue-600 p-2 rounded-lg text-white">
-               <Icons.Settings className="w-5 h-5" />
-             </div>
-             <div>
-               <h1 className="text-white font-bold text-lg">Editor de Menú</h1>
-               <p className="text-gray-400 text-xs">Panel de Administrador</p>
-             </div>
-          </div>
-          <button onClick={onLogout} className="text-gray-400 hover:text-white">
-            <Icons.Close />
-          </button>
-        </div>
+export interface Notification {
+  id: string;
+  title: string;
+  time: string;
+  type: 'info' | 'alert' | 'success';
+}
 
-        <div className="p-8">
-          <form onSubmit={handleSave} className="space-y-6">
-            
-            {/* Selector de Comida */}
-            <div className="space-y-2">
-              <label className="text-xs font-bold text-gray-500 uppercase">1. Selecciona el momento</label>
-              <div className="grid grid-cols-2 gap-3">
-                {mealOptions.map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    onClick={() => setSelectedMeal(option.key)}
-                    className={`p-3 rounded-xl border flex items-center gap-2 transition-all ${
-                      selectedMeal === option.key 
-                        ? 'bg-blue-50 border-blue-500 text-blue-700 ring-1 ring-blue-500' 
-                        : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
-                    }`}
-                  >
-                    <option.icon className={`w-4 h-4 ${selectedMeal === option.key ? 'text-blue-500' : 'text-gray-400'}`} />
-                    <span className="text-sm font-bold">{option.label}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
+export interface UserProfile {
+  name: string;
+  role: string;
+  avatarUrl: string;
+}
 
-            {/* Input de Plato */}
-            <div className="space-y-2">
-               <label className="text-xs font-bold text-gray-500 uppercase">2. Nombre del Plato</label>
-               <textarea
-                 value={dishName}
-                 onChange={(e) => setDishName(e.target.value)}
-                 className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500 font-medium text-gray-900 resize-none h-32"
-                 placeholder={`Ej: Lentejas con arroz y ensalada...`}
-               />
-            </div>
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'model';
+  text: string;
+  timestamp: Date;
+}
 
-            {/* Botón Guardar */}
-            <button
-              type="submit"
-              disabled={isSaving}
-              className="w-full py-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-200 transition-all active:scale-95 flex items-center justify-center gap-2"
-            >
-              {isSaving ? <Icons.Refresh className="w-5 h-5 animate-spin" /> : <Icons.Check className="w-5 h-5" />}
-              Actualizar Menú
-            </button>
-
-          </form>
-
-          {/* Preview Rápida */}
-          <div className="mt-8 pt-6 border-t border-gray-100">
-             <p className="text-xs font-bold text-gray-400 uppercase mb-3">Vista actual en Vivo:</p>
-             <div className="bg-orange-50 rounded-xl p-4 border border-orange-100">
-                <div className="grid grid-cols-1 gap-2 text-xs">
-                   <p><span className="font-bold text-orange-800">Desayuno:</span> {menuData.breakfast || '---'}</p>
-                   <p><span className="font-bold text-orange-800">Almuerzo:</span> {menuData.lunch || '---'}</p>
-                   <p><span className="font-bold text-orange-800">Cena:</span> {menuData.dinner || '---'}</p>
-                </div>
-             </div>
-          </div>
-        </div>
-
-      </div>
-    </div>
-  );
-};
+export interface AIInsight {
+  title: string;
+  value: string;
+  trend: 'up' | 'down' | 'stable';
+  description: string;
+  color: string;
+}

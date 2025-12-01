@@ -136,16 +136,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ student, onLogout,
   }
 
   // --- RENDER: PHONE FRAME (WRAPPER) ---
-  return (
-    <div className="min-h-screen bg-gray-100 flex flex-col items-center justify-center p-4">
-      <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border-8 border-gray-900 overflow-hidden relative h-[800px] flex flex-col">
+return (
+    <div className="min-h-screen bg-gray-50 flex justify-center">
+      {/* Contenedor principal: En móvil ocupa todo, en PC se centra como una app móvil moderna */}
+      <div className="w-full max-w-md bg-white shadow-xl min-h-screen flex flex-col relative">
         
-        {/* Notch */}
-        <div className="bg-gray-900 h-8 w-full flex justify-center items-end pb-1 relative z-20">
-           <div className="w-32 h-4 bg-black rounded-b-xl absolute top-0"></div>
-        </div>
-        
-        {/* CONTENT SWITCHER */}
+        {/* CONTENIDO (Sin Notch, sin bordes negros) */}
         {activeTab === 'survey' ? (
            <SurveyForm 
              studentCode={student.linkCode}
@@ -158,7 +154,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ student, onLogout,
         ) : (
           /* HOME DASHBOARD */
           <>
-            <header className="bg-gradient-to-br from-blue-700 to-blue-900 p-6 text-white pt-10 rounded-b-[2.5rem] shadow-lg relative z-10">
+            <header className="bg-gradient-to-br from-blue-700 to-blue-900 p-6 text-white pt-8 pb-12 rounded-b-[2rem] shadow-lg relative z-10">
               <div className="flex items-start justify-between mb-6">
                 <div>
                   <p className="text-blue-200 text-xs uppercase tracking-wider font-bold mb-1">Estudiante COAR</p>
@@ -181,13 +177,13 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ student, onLogout,
               </div>
             </header>
 
-            <div className="flex-1 p-6 bg-gray-50 overflow-y-auto space-y-6">
+            <div className="flex-1 p-6 -mt-6 z-20 overflow-y-auto space-y-6 pb-24">
               
-              {/* SURVEY ALERT (Priority) */}
+              {/* SURVEY ALERT */}
               {!student.weeklySurvey.completed && (
                 <button 
                   onClick={() => setActiveTab('survey')}
-                  className="w-full bg-purple-600 rounded-2xl p-5 shadow-lg shadow-purple-200 text-white relative overflow-hidden flex items-center justify-between group"
+                  className="w-full bg-purple-600 rounded-2xl p-5 shadow-lg shadow-purple-200 text-white relative overflow-hidden flex items-center justify-between group transform transition-all active:scale-95"
                 >
                    <div className="absolute -left-4 -bottom-4 w-20 h-20 bg-purple-500 rounded-full opacity-50"></div>
                    <div className="relative z-10 text-left">
@@ -198,7 +194,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ student, onLogout,
                       <h3 className="font-bold text-lg">Encuesta de Salida</h3>
                       <p className="text-purple-100 text-xs">Obligatorio los miércoles</p>
                    </div>
-                   <div className="w-10 h-10 bg-white text-purple-600 rounded-full flex items-center justify-center shadow-sm group-hover:scale-110 transition-transform">
+                   <div className="w-10 h-10 bg-white text-purple-600 rounded-full flex items-center justify-center shadow-sm">
                       <Icons.Survey className="w-5 h-5" />
                    </div>
                 </button>
@@ -232,17 +228,17 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ student, onLogout,
           </>
         )}
 
-        {/* Bottom Nav */}
-        <div className="bg-white border-t border-gray-100 p-4 px-8 pb-8 flex justify-between">
-           <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center gap-1 ${activeTab === 'home' ? 'text-blue-600' : 'text-gray-300'}`}>
+        {/* Bottom Nav - Fijo en la parte inferior */}
+        <div className="bg-white border-t border-gray-100 p-4 px-8 pb-6 flex justify-between sticky bottom-0 z-30">
+           <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'home' ? 'text-blue-600' : 'text-gray-300 hover:text-gray-500'}`}>
               <Icons.Dashboard className="w-6 h-6" />
               <span className="text-[10px] font-bold">Inicio</span>
            </button>
-           <button onClick={() => setActiveTab('survey')} className={`flex flex-col items-center gap-1 ${activeTab === 'survey' ? 'text-purple-600' : 'text-gray-300'}`}>
+           <button onClick={() => setActiveTab('survey')} className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'survey' ? 'text-purple-600' : 'text-gray-300 hover:text-gray-500'}`}>
               <Icons.Survey className="w-6 h-6" />
               <span className="text-[10px] font-bold">Encuesta</span>
            </button>
-           <button onClick={onLogout} className="text-gray-300 flex flex-col items-center gap-1 hover:text-red-500">
+           <button onClick={onLogout} className="text-gray-300 flex flex-col items-center gap-1 hover:text-red-500 transition-colors">
               <Icons.Close className="w-6 h-6" />
               <span className="text-[10px] font-bold">Salir</span>
            </button>

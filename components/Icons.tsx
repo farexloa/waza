@@ -1,0 +1,53 @@
+
+import React from 'react';
+import { 
+  LayoutDashboard, 
+  MapPin, 
+  Bell, 
+  Users, 
+  Settings, 
+  Search, 
+  RefreshCw, 
+  Send, 
+  ShieldCheck, 
+  Map, 
+  Layers,
+  Menu,
+  X,
+  Battery,
+  BatteryMedium,
+  BatteryLow,
+  ClipboardList,
+  CheckCircle,
+  Bus,
+  Car,
+  Footprints,
+  Moon,
+  Sun
+} from 'lucide-react';
+
+export const Icons = {
+  Dashboard: LayoutDashboard,
+  MapPin: MapPin,
+  Notification: Bell,
+  Students: Users,
+  Settings: Settings,
+  Search: Search,
+  Refresh: RefreshCw,
+  Send: Send,
+  Shield: ShieldCheck,
+  Map: Map,
+  Layers: Layers,
+  Menu: Menu,
+  Close: X,
+  BatteryFull: Battery,
+  BatteryMedium: BatteryMedium,
+  BatteryLow: BatteryLow,
+  Survey: ClipboardList,
+  Check: CheckCircle,
+  Bus: Bus,
+  Car: Car,
+  Walk: Footprints,
+  Moon: Moon,
+  Sun: Sun
+};

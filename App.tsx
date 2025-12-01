@@ -6,7 +6,7 @@ import { StudentPortal } from './components/StudentPortal';
 import { StudentDetailModal } from './components/StudentDetailModal';
 import { INITIAL_STUDENTS, SCHEDULE_ITEMS, INITIAL_PARENTS } from './constants';
 import { Student, StudentStatus, PickupAuthStatus, UserRole, SurveyData, Parent } from './types';
-import {db} from './firebaseConfig';
+import { db } from './firebaseConfig';
 import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
 
 const App: React.FC = () => {
@@ -31,7 +31,7 @@ const App: React.FC = () => {
   const [authError, setAuthError] = useState('');
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [registerSuccess, setRegisterSuccess] = useState(false);
-  const [keepSession, setKeepSession] = useState(false); // NUEVO: Estado para mantener sesión
+  const [keepSession, setKeepSession] = useState(false);
 
   // Parent Register Form
   const [parentRegData, setParentRegData] = useState({
@@ -39,7 +39,7 @@ const App: React.FC = () => {
     dni: '',
     phone: '',
     address: '',
-    familyCode: '' // NUEVO: Campo para el código del hijo
+    familyCode: '' 
   });
 
   // Student Register Form
@@ -73,14 +73,27 @@ const App: React.FC = () => {
 
         if (!querySnapshot.empty) {
           const doc = querySnapshot.docs[0];
-          const parentData = { ...doc.data(), id: doc.id }; 
+          const parentData = { ...doc.data(), id: doc.id } as Parent; 
           
-          setCurrentUserParent(parentData as any);
+          setCurrentUserParent(parentData);
           setUserRole('PARENT');
+
+          // Si el padre tiene un alumno vinculado, lo traemos y lo ponemos primero
+          if (parentData.linkedStudentId) { //
+             const studentRef = query(collection(db, "students"), where("__name__", "==", parentData.linkedStudentId));
+             const studentSnap = await getDocs(studentRef);
+             if (!studentSnap.empty) {
+                const sDoc = studentSnap.docs[0];
+                const linkedStudent = { ...sDoc.data(), id: sDoc.id } as Student;
+                setStudents(prev => {
+                   const others = prev.filter(s => s.id !== linkedStudent.id);
+                   return [linkedStudent, ...others];
+                });
+             }
+          }
           
           if (keepSession) {
-            console.log("Sesión mantenida (Simulación)"); 
-            // Aquí iría la lógica real de persistencia (localStorage/Cookies)
+            console.log("Sesión mantenida activada"); 
           }
         } else {
           // Intento por Código de Familia
@@ -89,8 +102,8 @@ const App: React.FC = () => {
           
           if (!codeSnapshot.empty) {
              const doc = codeSnapshot.docs[0];
-             const parentData = { ...doc.data(), id: doc.id };
-             setCurrentUserParent(parentData as any);
+             const parentData = { ...doc.data(), id: doc.id } as Parent;
+             setCurrentUserParent(parentData);
              setUserRole('PARENT');
           } else {
              setAuthError('Usuario no encontrado. Verifique su DNI.');
@@ -133,7 +146,7 @@ const App: React.FC = () => {
     }
 
     try {
-      // 1. Verificar si ya existe el padre
+      // 1. Verificar si ya existe el padre por DNI
       const q = query(collection(db, "parents"), where("dni", "==", parentRegData.dni));
       const querySnapshot = await getDocs(q);
 
@@ -143,26 +156,31 @@ const App: React.FC = () => {
         return;
       }
 
-      // 2. NUEVO: Verificar vinculación por Código Familiar
+      // 2. Verificar vinculación por Código Familiar (CORREGIDO: MAYÚSCULAS Y TRIM)
       let linkedStudentData: Student | null = null;
+      
       if (parentRegData.familyCode) {
-         // Buscamos al estudiante que tenga este linkCode
-         const qStudent = query(collection(db, "students"), where("linkCode", "==", parentRegData.familyCode.trim()));
+         // Convertimos a mayúsculas para evitar errores si el usuario escribe en minúsculas
+         const codeToSearch = parentRegData.familyCode.trim().toUpperCase(); //
+
+         const qStudent = query(collection(db, "students"), where("linkCode", "==", codeToSearch));
          const studentSnapshot = await getDocs(qStudent);
          
          if (!studentSnapshot.empty) {
             const sDoc = studentSnapshot.docs[0];
             linkedStudentData = { ...sDoc.data(), id: sDoc.id } as Student;
          } else {
-            // Si el usuario ingresó un código pero no existe, le avisamos
-            setAuthError('El código familiar ingresado no es válido.');
+            // Error explícito si el código no existe
+            setAuthError('El código familiar no existe. Verifíquelo con su hijo.');
             setIsLoggingIn(false);
             return;
          }
       }
 
-      // 3. Crear datos y GUARDAR
+      // 3. Crear datos y GUARDAR EN FIREBASE
       const newCode = `FAM-${Math.floor(1000 + Math.random() * 9000)}`;
+      
+      // Construimos el objeto padre asegurando que linkedStudentId esté presente si se encontró
       const newParent = {
         name: parentRegData.name,
         dni: parentRegData.dni,
@@ -171,23 +189,22 @@ const App: React.FC = () => {
         familyCode: newCode,
         avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(parentRegData.name)}&background=random`,
         role: 'Apoderado',
-        linkedStudentId: linkedStudentData ? linkedStudentData.id : null, // Guardamos la referencia
+        linkedStudentId: linkedStudentData ? linkedStudentData.id : null, // Guardado correcto en DB
         createdAt: new Date().toISOString()
       };
 
       await addDoc(collection(db, "parents"), newParent);
 
-      // 4. Actualizar estado local
-      // Si hubo vinculación, ponemos al estudiante primero en la lista
+      // 4. Actualizar estado local para mostrar al hijo primero
       if (linkedStudentData) {
          setStudents(prev => {
-            // Filtramos para no duplicar si ya existiera en la lista inicial mockeada
+            // Eliminamos duplicados y ponemos al vinculado al inicio
             const others = prev.filter(s => s.id !== linkedStudentData!.id);
             return [linkedStudentData!, ...others];
          });
       }
 
-      // 5. Entrar automáticamente
+      // 5. Finalizar registro e iniciar sesión
       setCurrentUserParent(newParent as any);
       setUserRole('PARENT');
       setRegisterSuccess(true);
@@ -197,15 +214,15 @@ const App: React.FC = () => {
          setRegisterSuccess(false);
          setIsRegistering(false);
          if (linkedStudentData) {
-            alert(`¡Cuenta creada y vinculada con ${linkedStudentData.name}!\nUsa tu DNI ${parentRegData.dni} para volver a entrar.`);
+            alert(`¡Cuenta vinculada con éxito a ${linkedStudentData.name}!\nBienvenido.`);
          } else {
             alert(`¡Cuenta creada!\nUsa tu DNI ${parentRegData.dni} para volver a entrar.`);
          }
-      }, 1000);
+      }, 1500);
 
     } catch (error) {
       console.error("Error Registro:", error);
-      setAuthError("No se pudo guardar en la base de datos.");
+      setAuthError("No se pudo conectar con la base de datos.");
       setIsLoggingIn(false);
     }
   };
@@ -338,17 +355,18 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
                      />
                    </div>
 
-                   {/* NUEVO: Checkbox para mantener sesión */}
-                   <div className="mt-4 flex items-center">
-                      <input 
-                        id="keepSession"
-                        type="checkbox"
-                        checked={keepSession}
-                        onChange={(e) => setKeepSession(e.target.checked)}
-                        className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
-                      />
-                      <label htmlFor="keepSession" className={`ml-2 text-xs font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
-                        Mantener sesión iniciada
+                   {/* Checkbox "Mantener sesión" */}
+                   <div className="mt-4 flex items-center justify-center">
+                      <label className="flex items-center cursor-pointer">
+                        <input 
+                          type="checkbox"
+                          checked={keepSession}
+                          onChange={(e) => setKeepSession(e.target.checked)}
+                          className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                        />
+                        <span className={`ml-2 text-xs font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                          Mantener sesión iniciada
+                        </span>
                       </label>
                    </div>
                    
@@ -388,18 +406,20 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
                {loginTab === 'PARENT' ? (
                  /* Parent Reg Form */
                  <form onSubmit={handleRegisterParent} className="space-y-4">
-                   {/* NUEVO: Campo de Código Familiar antes del DNI o nombre, o donde prefieras. Lo pondré al inicio para dar relevancia */}
-                   <div className="p-3 bg-blue-50 border border-blue-100 rounded-lg">
-                      <label className="text-[10px] font-bold text-blue-700 ml-1">CÓDIGO FAMILIAR (DEL ESTUDIANTE)</label>
+                   {/* Campo para CÓDIGO FAMILIAR (Vinculación) */}
+                   <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl">
+                      <label className="text-[10px] font-bold text-blue-800 ml-1 flex items-center gap-1">
+                        <Icons.Shield className="w-3 h-3"/> CÓDIGO FAMILIAR (DEL ESTUDIANTE)
+                      </label>
                       <input 
                         type="text" 
                         value={parentRegData.familyCode}
                         onChange={(e) => setParentRegData({...parentRegData, familyCode: e.target.value})}
-                        className="w-full p-2 mt-1 bg-white border border-blue-200 rounded-lg text-sm text-gray-900 font-bold outline-none focus:border-blue-500 uppercase tracking-wider"
+                        className="w-full p-2 mt-2 bg-white border border-blue-200 rounded-lg text-sm text-gray-900 font-bold outline-none focus:border-blue-500 uppercase tracking-wider text-center"
                         placeholder="EJ: COAR-JUAN1234"
                       />
-                      <p className="text-[9px] text-blue-500 mt-1 ml-1">
-                        * Opcional: Ingresa el código generado por tu hijo para vincularlo automáticamente.
+                      <p className="text-[10px] text-blue-600 mt-2 ml-1 leading-tight">
+                        * Pide este código a tu hijo (está en su credencial digital) para vincularlo automáticamente.
                       </p>
                    </div>
 

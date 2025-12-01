@@ -7,21 +7,23 @@ import { StudentDetailModal } from './components/StudentDetailModal';
 import { INITIAL_STUDENTS, SCHEDULE_ITEMS, INITIAL_PARENTS } from './constants';
 import { Student, StudentStatus, PickupAuthStatus, UserRole, SurveyData, Parent, StudentActivity } from './types';
 import { db } from './firebaseConfig';
-import { collection, addDoc, query, where, getDocs, updateDoc, doc, onSnapshot, setDoc } from 'firebase/firestore';
+import { collection, addDoc, query, where, getDocs, updateDoc, doc, onSnapshot } from 'firebase/firestore';
 
 const App: React.FC = () => {
   // --- DATABASE STATE ---
   const [parents, setParents] = useState<Parent[]>(INITIAL_PARENTS);
   const [students, setStudents] = useState<Student[]>([]); 
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true); // NUEVO: Estado de carga global
 
   // --- AUTH & USER STATE ---
   const [userRole, setUserRole] = useState<UserRole>(null);
   const [currentUserParent, setCurrentUserParent] = useState<Parent | null>(null);
   const [currentStudentId, setCurrentStudentId] = useState<string>('');
   
-  // --- UI STATE ---
+  // --- PAGINATION STATE ---
   const [visibleCount, setVisibleCount] = useState(8);
+
+  // --- UI STATE ---
   const [isDarkMode, setIsDarkMode] = useState(() => {
     const savedTheme = localStorage.getItem('coar_theme');
     return savedTheme === 'dark';
@@ -38,16 +40,6 @@ const App: React.FC = () => {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [registerSuccess, setRegisterSuccess] = useState(false);
   const [keepSession, setKeepSession] = useState(false);
-
-  // --- ADMIN EDITOR STATE (NUEVO) ---
-  const [showAdminLogin, setShowAdminLogin] = useState(false);
-  const [showAdminEditor, setShowAdminEditor] = useState(false);
-  const [adminCreds, setAdminCreds] = useState({ user: '', pass: '' });
-  const [editorData, setEditorData] = useState({
-    day: 'Lunes',
-    mealType: 'breakfast',
-    dish: ''
-  });
 
   // Parent Register Form
   const [parentRegData, setParentRegData] = useState({
@@ -77,10 +69,14 @@ const App: React.FC = () => {
 
   // --- EFECTOS ---
 
+  // 1. CARGA INICIAL Y RECUPERACIÓN DE SESIÓN (Unificados para evitar race conditions)
   useEffect(() => {
     const initializeApp = async () => {
       setIsLoading(true);
+      
+      // A. Cargar datos básicos
       try {
+        // Cargar Estudiantes
         const qStudents = query(collection(db, "students")); 
         const studentsSnap = await getDocs(qStudents);
         const fetchedStudents: Student[] = [];
@@ -89,6 +85,7 @@ const App: React.FC = () => {
         });
         setStudents(fetchedStudents);
 
+        // Cargar Padres (para tener los nombres a mano)
         const qParents = query(collection(db, "parents"));
         const parentsSnap = await getDocs(qParents);
         const fetchedParents: Parent[] = [];
@@ -101,6 +98,7 @@ const App: React.FC = () => {
         console.error("Error cargando datos:", error);
       }
 
+      // B. Restaurar Sesión
       const savedSession = localStorage.getItem('coar_session');
       if (savedSession) {
         try {
@@ -117,20 +115,24 @@ const App: React.FC = () => {
           localStorage.removeItem('coar_session');
         }
       }
-      setIsLoading(false);
+      
+      setIsLoading(false); // Fin de la carga
     };
 
     initializeApp();
   }, []);
 
+  // 2. LISTENERS EN TIEMPO REAL (PADRES Y ESTUDIANTES)
   useEffect(() => {
-    if (isLoading) return;
+    if (isLoading) return; // No suscribirse hasta terminar la carga inicial
 
     let unsubscribe: () => void;
 
+    // CASO A: SI SOY PADRE -> Escucho al hijo vinculado
     if (userRole === 'PARENT' && currentUserParent && (currentUserParent as any).linkedStudentId) {
       const studentId = (currentUserParent as any).linkedStudentId;
       const studentRef = doc(db, "students", studentId);
+      
       unsubscribe = onSnapshot(studentRef, (docSnapshot) => {
         if (docSnapshot.exists()) {
           const updatedStudent = { ...docSnapshot.data(), id: docSnapshot.id } as Student;
@@ -139,12 +141,17 @@ const App: React.FC = () => {
       });
     }
 
+    // CASO B: SI SOY ESTUDIANTE -> Escucho mi propio documento (SOLUCIÓN TIEMPO REAL)
     if (userRole === 'STUDENT' && currentStudentId) {
       const myStudentRef = doc(db, "students", currentStudentId);
+      
       unsubscribe = onSnapshot(myStudentRef, (docSnapshot) => {
         if (docSnapshot.exists()) {
           const updatedMyData = { ...docSnapshot.data(), id: docSnapshot.id } as Student;
+          
+          // Actualizo mi propio registro en el estado local
           setStudents(prev => {
+             // Si ya existe en la lista, lo actualizamos. Si no (raro), lo agregamos.
              const exists = prev.find(s => s.id === updatedMyData.id);
              if (exists) {
                return prev.map(s => s.id === updatedMyData.id ? updatedMyData : s);
@@ -161,14 +168,19 @@ const App: React.FC = () => {
     };
   }, [userRole, currentUserParent, currentStudentId, isLoading]);
 
+  // 3. PERSISTENCIA DE TEMA
   useEffect(() => {
     localStorage.setItem('coar_theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
 
+
   // --- FUNCIONES AUXILIARES ---
   
   const saveSession = (role: UserRole, userData: any) => {
-    localStorage.setItem('coar_session', JSON.stringify({ role, userData }));
+    localStorage.setItem('coar_session', JSON.stringify({
+      role,
+      userData
+    }));
   };
 
   const handleLogout = () => {
@@ -181,103 +193,110 @@ const App: React.FC = () => {
 
   const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
-  // --- ADMIN HANDLERS (NUEVO) ---
-  const handleAdminLogin = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (adminCreds.user === 'admin' && adminCreds.pass === 'admin') {
-      setShowAdminLogin(false);
-      setShowAdminEditor(true);
-      setAdminCreds({ user: '', pass: '' });
-    } else {
-      alert("Credenciales incorrectas");
-    }
-  };
-
-  const handleSaveMenu = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      // Usamos setDoc con merge:true para actualizar solo el campo específico del día sin borrar los otros
-      const menuRef = doc(db, "menus", editorData.day);
-      await setDoc(menuRef, {
-        [editorData.mealType]: editorData.dish
-      }, { merge: true });
-      
-      alert(`¡Menú de ${editorData.day} actualizado!`);
-      setEditorData(prev => ({ ...prev, dish: '' })); // Limpiar campo plato
-    } catch (error) {
-      console.error("Error guardando menú:", error);
-      alert("Error al conectar con la base de datos.");
-    }
-  };
-
-  // --- LÓGICA DE ORDENAMIENTO ---
+  // --- LÓGICA DE ORDENAMIENTO Y VISUALIZACIÓN ---
   const getSortedStudents = () => {
-    if (!currentUserParent || !(currentUserParent as any).linkedStudentId) return students; 
+    if (!currentUserParent || !(currentUserParent as any).linkedStudentId) {
+      return students; 
+    }
+    
     const linkedId = (currentUserParent as any).linkedStudentId;
     const linkedStudent = students.find(s => s.id === linkedId);
     const otherStudents = students.filter(s => s.id !== linkedId);
-    return linkedStudent ? [linkedStudent, ...otherStudents] : students;
+    
+    if (linkedStudent) {
+      return [linkedStudent, ...otherStudents];
+    }
+    return students;
   };
 
   const sortedStudents = getSortedStudents();
   const visibleStudents = sortedStudents.slice(0, visibleCount);
   const hasMore = visibleCount < sortedStudents.length;
 
-  const handleShowMore = () => setVisibleCount(prev => prev + 10);
-  const handleShowLess = () => setVisibleCount(8);
+  const handleShowMore = () => {
+    setVisibleCount(prev => prev + 10);
+  };
 
+  const handleShowLess = () => {
+    setVisibleCount(8);
+  };
+
+  // --- HANDLER: ACTUALIZAR ACTIVIDAD ESTUDIANTE ---
   const handleUpdateActivity = async (activity: StudentActivity) => {
     const updatedStudents = students.map(s => 
        s.id === currentStudentId ? { ...s, currentActivity: activity } : s
     );
     setStudents(updatedStudents);
+
     if (currentStudentId) {
       try {
         const studentRef = doc(db, "students", currentStudentId);
-        const statusText = activity === 'CLASSES' ? 'EN CLASES' : activity === 'FREE' ? 'TIEMPO LIBRE' : activity === 'EXIT' ? 'SALIDA' : 'EN LÍNEA';
-        await updateDoc(studentRef, { currentActivity: activity, statusText: statusText });
+        const statusText = activity === 'CLASSES' ? 'EN CLASES' : 
+                           activity === 'FREE' ? 'TIEMPO LIBRE' : 
+                           activity === 'EXIT' ? 'SALIDA' : 'EN LÍNEA';
+                           
+        await updateDoc(studentRef, { 
+          currentActivity: activity,
+          statusText: statusText 
+        });
       } catch (error) {
         console.error("Error al guardar actividad en BD:", error);
       }
     }
   };
 
+  // --- HANDLERS AUTH ---
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
     setIsLoggingIn(true);
+
     try {
       if (loginTab === 'PARENT') {
         const q = query(collection(db, "parents"), where("dni", "==", authInput));
         const querySnapshot = await getDocs(q);
+
         if (!querySnapshot.empty) {
           const docSnap = querySnapshot.docs[0];
           const parentData = { ...docSnap.data(), id: docSnap.id } as Parent; 
+          
           setCurrentUserParent(parentData);
           setUserRole('PARENT');
-          if (keepSession) saveSession('PARENT', parentData);
+
+          if (keepSession) {
+            saveSession('PARENT', parentData);
+          }
+
         } else {
           const qCode = query(collection(db, "parents"), where("familyCode", "==", authInput));
           const codeSnapshot = await getDocs(qCode);
+          
           if (!codeSnapshot.empty) {
              const docSnap = codeSnapshot.docs[0];
              const parentData = { ...docSnap.data(), id: docSnap.id } as Parent;
              setCurrentUserParent(parentData);
              setUserRole('PARENT');
+             
              if (keepSession) saveSession('PARENT', parentData);
           } else {
              setAuthError('Usuario no encontrado. Verifique su DNI.');
           }
         }
+
       } else {
         const q = query(collection(db, "students"), where("dni", "==", authInput));
         const querySnapshot = await getDocs(q);
+
         if (!querySnapshot.empty) {
           const docSnap = querySnapshot.docs[0];
           const studentData = { ...docSnap.data(), id: docSnap.id } as Student;
+          
           setCurrentStudentId(docSnap.id);
           setUserRole('STUDENT');
-          if (keepSession) saveSession('STUDENT', studentData);
+
+          if (keepSession) {
+             saveSession('STUDENT', studentData);
+          }
         } else {
           setAuthError('Estudiante no encontrado. Regístrate primero.');
         }
@@ -290,27 +309,43 @@ const App: React.FC = () => {
     }
   };
 
-  const handleRegisterParent = async (e: React.FormEvent) => {
+ const handleRegisterParent = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
     setIsLoggingIn(true);
-    if (parentRegData.dni.length !== 8) { setAuthError('El DNI debe tener 8 dígitos.'); setIsLoggingIn(false); return; }
+
+    if (parentRegData.dni.length !== 8) {
+      setAuthError('El DNI debe tener 8 dígitos.');
+      setIsLoggingIn(false);
+      return;
+    }
+
     try {
       const q = query(collection(db, "parents"), where("dni", "==", parentRegData.dni));
       const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) { setAuthError('Este DNI ya está registrado.'); setIsLoggingIn(false); return; }
+
+      if (!querySnapshot.empty) {
+        setAuthError('Este DNI ya está registrado.');
+        setIsLoggingIn(false);
+        return;
+      }
+
       let linkedStudentData: Student | null = null;
       if (parentRegData.familyCode) {
          const cleanCode = parentRegData.familyCode.trim().toUpperCase();
          const qStudent = query(collection(db, "students"), where("linkCode", "==", cleanCode));
          const studentSnapshot = await getDocs(qStudent);
+         
          if (!studentSnapshot.empty) {
             const sDoc = studentSnapshot.docs[0];
             linkedStudentData = { ...sDoc.data(), id: sDoc.id } as Student;
          } else {
-            setAuthError('El código familiar no existe. Verifíquelo.'); setIsLoggingIn(false); return;
+            setAuthError('El código familiar no existe. Verifíquelo.');
+            setIsLoggingIn(false);
+            return;
          }
       }
+
       const newCode = `FAM-${Math.floor(1000 + Math.random() * 9000)}`;
       const newParent = {
         name: parentRegData.name,
@@ -323,27 +358,56 @@ const App: React.FC = () => {
         linkedStudentId: linkedStudentData ? linkedStudentData.id : null,
         createdAt: new Date().toISOString()
       };
+
       await addDoc(collection(db, "parents"), newParent);
+
       setCurrentUserParent(newParent as any);
       setUserRole('PARENT');
       saveSession('PARENT', newParent);
+
       setRegisterSuccess(true);
-      setTimeout(() => { setIsLoggingIn(false); setRegisterSuccess(false); setIsRegistering(false); if (linkedStudentData) { alert(`¡Cuenta creada y vinculada con ${linkedStudentData.name}!`); } }, 1500);
-    } catch (error) { console.error("Error Registro:", error); setAuthError("No se pudo guardar en la base de datos."); setIsLoggingIn(false); }
+      
+      setTimeout(() => {
+         setIsLoggingIn(false);
+         setRegisterSuccess(false);
+         setIsRegistering(false);
+         if (linkedStudentData) {
+            alert(`¡Cuenta creada y vinculada con ${linkedStudentData.name}!`);
+         }
+      }, 1500);
+
+    } catch (error) {
+      console.error("Error Registro:", error);
+      setAuthError("No se pudo guardar en la base de datos.");
+      setIsLoggingIn(false);
+    }
   };
   
-  const handleRegisterStudent = async (e: React.FormEvent) => {
+const handleRegisterStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
     setIsLoggingIn(true);
-    if (studentRegData.dni.length !== 8) { setAuthError('El DNI debe tener 8 dígitos.'); setIsLoggingIn(false); return; }
+
+    if (studentRegData.dni.length !== 8) {
+      setAuthError('El DNI debe tener 8 dígitos.');
+      setIsLoggingIn(false);
+      return;
+    }
+
     try {
       const q = query(collection(db, "students"), where("dni", "==", studentRegData.dni));
       const querySnapshot = await getDocs(q);
-      if (!querySnapshot.empty) { setAuthError('Este estudiante ya existe.'); setIsLoggingIn(false); return; }
+
+      if (!querySnapshot.empty) {
+        setAuthError('Este estudiante ya existe.');
+        setIsLoggingIn(false);
+        return;
+      }
+
       const linkCodeSuffix = Math.floor(1000 + Math.random() * 9000);
       const namePrefix = studentRegData.name.substring(0, 3).toUpperCase().replace(/\s/g, 'X');
       const generatedLinkCode = `COAR-${namePrefix}${linkCodeSuffix}`;
+
       const newStudent = {
         name: studentRegData.name,
         dni: studentRegData.dni,
@@ -364,34 +428,31 @@ const App: React.FC = () => {
         currentActivity: null,
         createdAt: new Date().toISOString()
       };
+
       const docRef = await addDoc(collection(db, "students"), newStudent);
       const studentWithId = { ...newStudent, id: docRef.id };
+      
       setStudents(prev => [...prev, studentWithId as any]);
       setCurrentStudentId(docRef.id);
       setUserRole('STUDENT');
+      
       saveSession('STUDENT', studentWithId);
+
       setRegisterSuccess(true);
-      setTimeout(() => { setIsLoggingIn(false); setIsRegistering(false); setRegisterSuccess(false); }, 1000);
-    } catch (error) { console.error("Error Registro Estudiante:", error); setAuthError("Error al guardar datos."); setIsLoggingIn(false); }
+      setTimeout(() => {
+        setIsLoggingIn(false);
+        setIsRegistering(false);
+        setRegisterSuccess(false);
+      }, 1000);
+
+    } catch (error) {
+      console.error("Error Registro Estudiante:", error);
+      setAuthError("Error al guardar datos.");
+      setIsLoggingIn(false);
+    }
   };
 
-  const handleConnectPhone = (e: React.FormEvent) => {
-    e.preventDefault();
-    const matchedStudent = students.find(s => s.linkCode === phoneCode.trim().toUpperCase());
-    if (matchedStudent) { alert(`¡Vinculado! Has conectado con: ${matchedStudent.name}.`); setPhoneCode(''); setShowConnectModal(false); } else { alert("Código inválido."); }
-  };
-
-  const handleRequestPickup = async (studentId: string) => {
-    setStudents(prev => prev.map(s => s.id === studentId ? { ...s, pickupAuthorization: PickupAuthStatus.PENDING } : s));
-    try {
-      const studentRef = doc(db, "students", studentId);
-      await updateDoc(studentRef, { pickupAuthorization: 'PENDING' });
-      alert("Solicitud enviada al dispositivo del estudiante.");
-    } catch (error) { console.error("Error al solicitar salida:", error); alert("Hubo un error al enviar la solicitud."); }
-  };
-
-  // --- RENDERIZADO ---
-
+  // --- PANTALLA DE CARGA ---
   if (isLoading) {
     return (
       <div className={`min-h-screen flex flex-col items-center justify-center ${isDarkMode ? 'bg-gray-900' : 'bg-white'}`}>
@@ -406,21 +467,10 @@ const App: React.FC = () => {
     return (
       <div className={`min-h-screen flex flex-col items-center justify-center p-4 transition-colors duration-300 ${isDarkMode ? 'bg-gray-900' : 'bg-[#F0F4F8]'}`}>
         
-        {/* THEME TOGGLE */}
         <button onClick={toggleTheme} className="absolute top-4 right-4 p-2 rounded-full bg-white/10 text-gray-500 hover:text-blue-500 transition-colors">
           {isDarkMode ? <Icons.Sun /> : <Icons.Moon />}
         </button>
 
-        {/* --- NUEVO: BOTÓN EDITOR --- */}
-        <button
-          onClick={() => setShowAdminLogin(true)}
-          className="fixed bottom-4 left-4 p-3 bg-gray-200/50 hover:bg-gray-300 rounded-full text-gray-500 hover:text-gray-800 transition-all z-50 backdrop-blur-sm"
-          title="Panel de Editor"
-        >
-          <Icons.Settings className="w-5 h-5" />
-        </button>
-
-        {/* LOGIN CONTAINER */}
         <div className={`rounded-3xl shadow-2xl max-w-[480px] w-full overflow-hidden relative ${isDarkMode ? 'bg-gray-800' : 'bg-white'}`}>
           <div className="bg-blue-900 p-8 text-center relative overflow-hidden">
              <div className="absolute inset-0 opacity-20 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
@@ -509,7 +559,6 @@ const App: React.FC = () => {
             </>
           ) : (
             <div className="p-6 h-[500px] overflow-y-auto custom-scrollbar">
-               {/* FORMULARIOS DE REGISTRO (SIN CAMBIOS) */}
                <div className={`flex items-center gap-2 mb-4 sticky top-0 z-10 py-2 border-b ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100'}`}>
                  <button onClick={() => setIsRegistering(false)} className={`p-2 rounded-full ${isDarkMode ? 'hover:bg-gray-700 text-white' : 'hover:bg-gray-100 text-gray-500'}`}>
                    <Icons.Close className="w-4 h-4" />
@@ -525,13 +574,22 @@ const App: React.FC = () => {
                       <label className="text-[10px] font-bold text-blue-800 ml-1 flex items-center gap-1">
                         <Icons.Shield className="w-3 h-3"/> CÓDIGO FAMILIAR (DEL ESTUDIANTE)
                       </label>
-                      <input type="text" value={parentRegData.familyCode} onChange={(e) => setParentRegData({...parentRegData, familyCode: e.target.value})} className="w-full p-2 mt-2 bg-white border border-blue-200 rounded-lg text-sm text-gray-900 font-bold outline-none uppercase tracking-wider text-center" placeholder="EJ: COAR-JUAN1234" />
-                      <p className="text-[10px] text-blue-600 mt-2 ml-1 leading-tight">* Pide este código a tu hijo.</p>
+                      <input 
+                        type="text" 
+                        value={parentRegData.familyCode}
+                        onChange={(e) => setParentRegData({...parentRegData, familyCode: e.target.value})}
+                        className="w-full p-2 mt-2 bg-white border border-blue-200 rounded-lg text-sm text-gray-900 font-bold outline-none focus:border-blue-500 uppercase tracking-wider text-center"
+                        placeholder="EJ: COAR-JUAN1234"
+                      />
+                      <p className="text-[10px] text-blue-600 mt-2 ml-1 leading-tight">
+                        * Pide este código a tu hijo (está en su credencial digital) para vincularlo automáticamente.
+                      </p>
                    </div>
                    <div><label className="text-[10px] font-bold text-gray-500 ml-1">NOMBRE</label><input type="text" value={parentRegData.name} onChange={(e) => setParentRegData({...parentRegData, name: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 font-medium outline-none" required /></div>
                    <div><label className="text-[10px] font-bold text-gray-500 ml-1">DNI</label><input type="text" value={parentRegData.dni} onChange={(e) => setParentRegData({...parentRegData, dni: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 font-medium outline-none" maxLength={8} required /></div>
                    <div><label className="text-[10px] font-bold text-gray-500 ml-1">CELULAR</label><input type="text" value={parentRegData.phone} onChange={(e) => setParentRegData({...parentRegData, phone: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 font-medium outline-none" required /></div>
                    <div><label className="text-[10px] font-bold text-gray-500 ml-1">DIRECCIÓN</label><input type="text" value={parentRegData.address} onChange={(e) => setParentRegData({...parentRegData, address: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 font-medium outline-none" required /></div>
+                   
                    {authError && <p className="text-xs text-red-500 font-medium text-center">{authError}</p>}
                    <button type="submit" className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold mt-4">Crear Cuenta Familiar</button>
                  </form>
@@ -542,8 +600,18 @@ const App: React.FC = () => {
                      <div><label className="text-[10px] font-bold text-gray-500 ml-1">NOMBRE</label><input type="text" value={studentRegData.name} onChange={(e) => setStudentRegData({...studentRegData, name: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 font-medium outline-none" required /></div>
                    </div>
                    <div className="grid grid-cols-2 gap-3">
-                     <div><label className="text-[10px] font-bold text-gray-500 ml-1">GRADO</label><select value={studentRegData.grade} onChange={(e) => setStudentRegData({...studentRegData, grade: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 outline-none"><option value="3ro">3ro</option><option value="4to">4to</option><option value="5to">5to</option></select></div>
-                     <div><label className="text-[10px] font-bold text-gray-500 ml-1">SECCIÓN</label><select value={studentRegData.section} onChange={(e) => setStudentRegData({...studentRegData, section: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 outline-none"><option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option></select></div>
+                     <div>
+                       <label className="text-[10px] font-bold text-gray-500 ml-1">GRADO</label>
+                       <select value={studentRegData.grade} onChange={(e) => setStudentRegData({...studentRegData, grade: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 outline-none">
+                         <option value="3ro">3ro</option><option value="4to">4to</option><option value="5to">5to</option>
+                       </select>
+                     </div>
+                     <div>
+                       <label className="text-[10px] font-bold text-gray-500 ml-1">SECCIÓN</label>
+                       <select value={studentRegData.section} onChange={(e) => setStudentRegData({...studentRegData, section: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 outline-none">
+                         <option value="A">A</option><option value="B">B</option><option value="C">C</option><option value="D">D</option>
+                       </select>
+                     </div>
                    </div>
                    <div><label className="text-[10px] font-bold text-gray-500 ml-1">CIUDAD</label><input type="text" value={studentRegData.originCity} onChange={(e) => setStudentRegData({...studentRegData, originCity: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-900 font-medium outline-none" required /></div>
                    {authError && <p className="text-xs text-red-500 font-medium text-center">{authError}</p>}
@@ -553,79 +621,6 @@ const App: React.FC = () => {
             </div>
           )}
         </div>
-
-        {/* --- ADMIN MODALS --- */}
-        {showAdminLogin && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 relative">
-              <button onClick={() => setShowAdminLogin(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><Icons.Close size={20}/></button>
-              <h2 className="text-lg font-bold text-gray-800 mb-4">Acceso Editor</h2>
-              <form onSubmit={handleAdminLogin} className="space-y-4">
-                <input type="text" placeholder="Usuario" className="w-full p-3 border rounded-xl text-sm" value={adminCreds.user} onChange={e => setAdminCreds({...adminCreds, user: e.target.value})} />
-                <input type="password" placeholder="Contraseña" className="w-full p-3 border rounded-xl text-sm" value={adminCreds.pass} onChange={e => setAdminCreds({...adminCreds, pass: e.target.value})} />
-                <button type="submit" className="w-full py-3 bg-gray-900 text-white rounded-xl font-bold hover:bg-black">Entrar</button>
-              </form>
-            </div>
-          </div>
-        )}
-
-        {showAdminEditor && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 relative">
-              <button onClick={() => setShowAdminEditor(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><Icons.Close size={20}/></button>
-              <div className="flex items-center gap-2 mb-6">
-                <div className="p-2 bg-orange-100 text-orange-600 rounded-lg"><Icons.Menu size={20}/></div>
-                <h2 className="text-xl font-bold text-gray-800">Editor de Menú</h2>
-              </div>
-              
-              <form onSubmit={handleSaveMenu} className="space-y-4">
-                <div>
-                  <label className="text-xs font-bold text-gray-500 mb-1 block">DÍA DE LA SEMANA</label>
-                  <select 
-                    value={editorData.day} 
-                    onChange={e => setEditorData({...editorData, day: e.target.value})} 
-                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none"
-                  >
-                    {['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'].map(d => (
-                      <option key={d} value={d}>{d}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-gray-500 mb-1 block">TIPO DE COMIDA</label>
-                  <select 
-                    value={editorData.mealType} 
-                    onChange={e => setEditorData({...editorData, mealType: e.target.value})} 
-                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none"
-                  >
-                    <option value="breakfast">Desayuno</option>
-                    <option value="break1">Receso Mañana</option>
-                    <option value="lunch">Almuerzo</option>
-                    <option value="break2">Receso Tarde</option>
-                    <option value="dinner">Cena</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-xs font-bold text-gray-500 mb-1 block">PLATO / DESCRIPCIÓN</label>
-                  <textarea 
-                    value={editorData.dish} 
-                    onChange={e => setEditorData({...editorData, dish: e.target.value})} 
-                    placeholder="Ej: Lentejas con arroz y ensalada..."
-                    className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none h-24 resize-none"
-                    required
-                  />
-                </div>
-
-                <button type="submit" className="w-full py-3 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 shadow-lg shadow-orange-200">
-                  Guardar Cambios
-                </button>
-              </form>
-            </div>
-          </div>
-        )}
-
       </div>
     );
   }
@@ -635,15 +630,20 @@ const App: React.FC = () => {
     const myData = students.find(s => s.id === currentStudentId);
     if (!myData) { setUserRole(null); return null; }
 
+    // Encontrar al padre vinculado para pasar su nombre
     const linkedParent = parents.find(p => (p as any).linkedStudentId === myData.id);
     const parentName = linkedParent ? linkedParent.name : "Tu Apoderado";
 
+    // --- MANEJAR RESPUESTA DEL ESTUDIANTE (CON ACTUALIZACIÓN DE FIREBASE) ---
     const handleStudentResponse = async (approved: boolean) => {
        const newStatus = approved ? PickupAuthStatus.APPROVED : PickupAuthStatus.REJECTED;
-       setStudents(prev => prev.map(s => s.id === currentStudentId ? { ...s, pickupAuthorization: newStatus } : s));
+       
+       // Actualización en Firebase (esto disparará la actualización en pantalla de todos)
        try {
          const studentRef = doc(db, "students", currentStudentId);
-         await updateDoc(studentRef, { pickupAuthorization: newStatus });
+         await updateDoc(studentRef, { 
+           pickupAuthorization: newStatus
+         });
        } catch (error) {
          console.error("Error updating pickup status:", error);
          alert("Error de conexión al responder.");
@@ -668,6 +668,7 @@ const App: React.FC = () => {
   }
 
   // --- PARENT DASHBOARD VIEW ---
+
   const handleConnectPhone = (e: React.FormEvent) => {
     e.preventDefault();
     const matchedStudent = students.find(s => s.linkCode === phoneCode.trim().toUpperCase());
@@ -681,10 +682,15 @@ const App: React.FC = () => {
   };
 
   const handleRequestPickup = async (studentId: string) => {
+    // 1. Actualización optimista
     setStudents(prev => prev.map(s => s.id === studentId ? { ...s, pickupAuthorization: PickupAuthStatus.PENDING } : s));
+    
+    // 2. Actualización Real en Firebase
     try {
       const studentRef = doc(db, "students", studentId);
-      await updateDoc(studentRef, { pickupAuthorization: 'PENDING' });
+      await updateDoc(studentRef, { 
+        pickupAuthorization: 'PENDING' 
+      });
       alert("Solicitud enviada al dispositivo del estudiante.");
     } catch (error) {
       console.error("Error al solicitar salida:", error);
@@ -694,6 +700,7 @@ const App: React.FC = () => {
 
   return (
     <div className={`flex h-screen overflow-hidden transition-colors duration-300 ${isDarkMode ? 'bg-gray-900' : 'bg-[#F3F5F7]'}`}>
+      
       <Sidebar 
         isOpen={isSidebarOpen} 
         toggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -701,7 +708,9 @@ const App: React.FC = () => {
         setActiveTab={setActiveTab}
         isDarkMode={isDarkMode}
       />
+
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        
         <header className={`border-b px-6 py-3 flex items-center justify-between shadow-sm z-20 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100'}`}>
           <div className="flex items-center flex-1">
             <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`mr-4 lg:hidden ${isDarkMode ? 'text-white' : 'text-gray-500'}`}>
@@ -711,6 +720,7 @@ const App: React.FC = () => {
               {activeTab === 'dashboard' ? 'Panel Principal' : 'Ajustes de Cuenta'}
             </h2>
           </div>
+
           <div className="flex items-center space-x-4">
              <button onClick={handleLogout} className="flex items-center space-x-3 pl-4 border-l border-gray-200 hover:opacity-70 transition-opacity">
                <img src={currentUserParent?.avatarUrl || ''} alt="Profile" className="w-9 h-9 rounded-full object-cover border-2 border-white shadow-sm" />
@@ -721,6 +731,7 @@ const App: React.FC = () => {
              </button>
           </div>
         </header>
+
         <div className="flex-1 overflow-auto p-4 lg:p-6">
           {activeTab === 'settings' ? (
              <div className="max-w-2xl mx-auto space-y-6">
@@ -735,19 +746,31 @@ const App: React.FC = () => {
              </div>
           ) : (
             <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
+              
               <div className="lg:col-span-7 space-y-6">
+                
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <div>
-                    <h2 className={`text-2xl font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Estudiantes ({students.length})</h2>
+                    <h2 className={`text-2xl font-bold tracking-tight ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>
+                      Estudiantes ({students.length})
+                    </h2>
                     <p className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>Gestión de salida escolar</p>
                   </div>
                 </div>
+
                 <div className="space-y-4">
                   {visibleStudents.map((student) => {
                     const isLinked = (currentUserParent as any)?.linkedStudentId === student.id;
+
                     return (
                       <div key={student.id} className={`p-5 rounded-2xl border shadow-sm transition-all relative ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100'} ${isLinked ? 'ring-2 ring-blue-500 ring-offset-2 ring-offset-gray-100' : ''}`}>
-                        {isLinked && <div className="absolute top-0 right-0 bg-blue-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl rounded-tr-xl">TU HIJO</div>}
+                        
+                        {isLinked && (
+                           <div className="absolute top-0 right-0 bg-blue-500 text-white text-[10px] font-bold px-3 py-1 rounded-bl-xl rounded-tr-xl">
+                              TU HIJO
+                           </div>
+                        )}
+
                         <div className="flex items-start justify-between mb-4">
                           <div className="flex items-center space-x-4 cursor-pointer" onClick={() => setSelectedStudent(student)}>
                             <img src={student.avatarUrl} alt={student.name} className="w-14 h-14 rounded-full object-cover ring-4 ring-gray-100" />
@@ -756,74 +779,172 @@ const App: React.FC = () => {
                               <div className="flex flex-wrap items-center gap-2 mt-1">
                                  <p className="text-xs text-gray-500">{student.grade} "{student.section}"</p>
                                  {student.currentActivity && (
-                                   <span className={`text-[9px] font-bold px-2 py-0.5 rounded flex items-center gap-1 uppercase tracking-wide border ${student.currentActivity === 'CLASSES' ? 'bg-blue-50 text-blue-700 border-blue-100' : student.currentActivity === 'FREE' ? 'bg-green-50 text-green-700 border-green-100' : 'bg-orange-50 text-orange-700 border-orange-100'}`}>
+                                   <span className={`text-[9px] font-bold px-2 py-0.5 rounded flex items-center gap-1 uppercase tracking-wide border ${
+                                     student.currentActivity === 'CLASSES' ? 'bg-blue-50 text-blue-700 border-blue-100' :
+                                     student.currentActivity === 'FREE' ? 'bg-green-50 text-green-700 border-green-100' :
+                                     'bg-orange-50 text-orange-700 border-orange-100'
+                                   }`}>
                                      {student.currentActivity === 'CLASSES' && <Icons.Layers className="w-3 h-3"/>}
                                      {student.currentActivity === 'FREE' && <Icons.Sun className="w-3 h-3"/>}
                                      {student.currentActivity === 'EXIT' && <Icons.Bus className="w-3 h-3"/>}
-                                     {student.currentActivity === 'CLASSES' ? 'EN CLASES' : student.currentActivity === 'FREE' ? 'TIEMPO LIBRE' : 'SALIDA'}
+                                     
+                                     {student.currentActivity === 'CLASSES' ? 'EN CLASES' :
+                                      student.currentActivity === 'FREE' ? 'TIEMPO LIBRE' : 'SALIDA'}
                                    </span>
                                  )}
                               </div>
                             </div>
                           </div>
-                          <span className={`px-3 py-1 rounded-full text-xs font-semibold border flex items-center ${student.currentActivity === 'CLASSES' ? 'bg-blue-100 text-blue-700 border-blue-200' : student.currentActivity === 'FREE' ? 'bg-green-100 text-green-700 border-green-200' : student.currentActivity === 'EXIT' ? 'bg-orange-100 text-orange-700 border-orange-200' : student.status === StudentStatus.READY ? 'bg-green-100 text-green-700 border-green-200' : student.status === StudentStatus.ON_WAY ? 'bg-yellow-100 text-yellow-700 border-yellow-200' : 'bg-blue-50 text-blue-700 border-blue-100'}`}>
-                            {student.currentActivity === 'CLASSES' ? 'EN CLASES' : student.currentActivity === 'FREE' ? 'TIEMPO LIBRE' : student.currentActivity === 'EXIT' ? 'SALIDA' : student.statusText || 'En línea'}
+                          
+                          <span className={`px-3 py-1 rounded-full text-xs font-semibold border flex items-center ${
+                            student.currentActivity === 'CLASSES' ? 'bg-blue-100 text-blue-700 border-blue-200' :
+                            student.currentActivity === 'FREE' ? 'bg-green-100 text-green-700 border-green-200' :
+                            student.currentActivity === 'EXIT' ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                            student.status === StudentStatus.READY ? 'bg-green-100 text-green-700 border-green-200' :
+                            student.status === StudentStatus.ON_WAY ? 'bg-yellow-100 text-yellow-700 border-yellow-200' :
+                            'bg-blue-50 text-blue-700 border-blue-100'
+                          }`}>
+                            {student.currentActivity === 'CLASSES' ? 'EN CLASES' :
+                             student.currentActivity === 'FREE' ? 'TIEMPO LIBRE' :
+                             student.currentActivity === 'EXIT' ? 'SALIDA' :
+                             student.statusText || 'En línea'}
                           </span>
                         </div>
+
                         <div className={`pt-4 border-t flex items-center justify-between ${isDarkMode ? 'border-gray-700' : 'border-gray-100'}`}>
                             <div className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                               {student.pickupAuthorization === PickupAuthStatus.PENDING ? "Esperando confirmación..." : student.pickupAuthorization === PickupAuthStatus.APPROVED ? "✅ Salida confirmada." : student.pickupAuthorization === PickupAuthStatus.REJECTED ? "❌ Solicitud rechazada (En clases)." : "Estado regular."}
+                               {student.pickupAuthorization === PickupAuthStatus.PENDING 
+                                 ? "Esperando confirmación..." 
+                                 : student.pickupAuthorization === PickupAuthStatus.APPROVED 
+                                   ? "✅ Salida confirmada." 
+                                   : student.pickupAuthorization === PickupAuthStatus.REJECTED 
+                                     ? "❌ Solicitud rechazada (En clases)." 
+                                     : "Estado regular."}
                             </div>
+                            
                             {isLinked && (student.pickupAuthorization === PickupAuthStatus.NONE || student.pickupAuthorization === PickupAuthStatus.REJECTED) && (
-                              <button onClick={() => handleRequestPickup(student.id)} className={`flex items-center px-4 py-2 text-white text-xs font-bold rounded-lg transition-all ${student.pickupAuthorization === PickupAuthStatus.REJECTED ? 'bg-orange-500 hover:bg-orange-600' : 'bg-blue-600 hover:bg-blue-700'}`}>
-                                <Icons.Send className="w-3 h-3 mr-2" />{student.pickupAuthorization === PickupAuthStatus.REJECTED ? "Reenviar Solicitud" : "Solicitar Salida"}
+                              <button 
+                                onClick={() => handleRequestPickup(student.id)}
+                                className={`flex items-center px-4 py-2 text-white text-xs font-bold rounded-lg transition-all ${
+                                  student.pickupAuthorization === PickupAuthStatus.REJECTED 
+                                    ? 'bg-orange-500 hover:bg-orange-600' 
+                                    : 'bg-blue-600 hover:bg-blue-700'
+                                }`}
+                              >
+                                <Icons.Send className="w-3 h-3 mr-2" />
+                                {student.pickupAuthorization === PickupAuthStatus.REJECTED ? "Reenviar Solicitud" : "Solicitar Salida"}
                               </button>
                             )}
-                            {!isLinked && <span className="text-gray-400 text-xs italic">Solo lectura</span>}
-                            {student.pickupAuthorization === PickupAuthStatus.APPROVED && <span className="text-green-500 font-bold text-xs flex items-center"><Icons.Check className="w-4 h-4 mr-1" /> Autorizado</span>}
+                            
+                            {!isLinked && (
+                               <span className="text-gray-400 text-xs italic">Solo lectura</span>
+                            )}
+                            
+                            {student.pickupAuthorization === PickupAuthStatus.APPROVED && (
+                               <span className="text-green-500 font-bold text-xs flex items-center">
+                                 <Icons.Check className="w-4 h-4 mr-1" /> Autorizado
+                               </span>
+                            )}
                         </div>
                       </div>
                     );
                   })}
                 </div>
+
                 <div className="flex justify-center gap-4 py-4">
-                   {hasMore && <button onClick={handleShowMore} className={`px-6 py-2 rounded-xl text-sm font-bold shadow-sm transition-colors ${isDarkMode ? 'bg-gray-800 text-white hover:bg-gray-700' : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'}`}>Mostrar más ({sortedStudents.length - visibleCount} restantes)</button>}
-                   {visibleCount > 8 && <button onClick={handleShowLess} className={`px-6 py-2 rounded-xl text-sm font-bold shadow-sm transition-colors ${isDarkMode ? 'bg-gray-800 text-red-400 hover:bg-gray-700' : 'bg-white text-red-500 hover:bg-red-50 border border-red-100'}`}>Mostrar menos</button>}
+                   {hasMore && (
+                     <button 
+                       onClick={handleShowMore}
+                       className={`px-6 py-2 rounded-xl text-sm font-bold shadow-sm transition-colors ${isDarkMode ? 'bg-gray-800 text-white hover:bg-gray-700' : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-200'}`}
+                     >
+                       Mostrar más ({sortedStudents.length - visibleCount} restantes)
+                     </button>
+                   )}
+                   
+                   {visibleCount > 8 && (
+                     <button 
+                       onClick={handleShowLess}
+                       className={`px-6 py-2 rounded-xl text-sm font-bold shadow-sm transition-colors ${isDarkMode ? 'bg-gray-800 text-red-400 hover:bg-gray-700' : 'bg-white text-red-500 hover:bg-red-50 border border-red-100'}`}
+                     >
+                       Mostrar menos
+                     </button>
+                   )}
                 </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                    {SCHEDULE_ITEMS.map((item, idx) => (
                      <div key={idx} className={`p-4 rounded-2xl border shadow-sm flex items-center justify-between ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
-                        <div><h3 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{item.time}</h3><p className="text-xs font-medium text-gray-500">{item.title}</p></div>
+                        <div>
+                          <h3 className={`text-base font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{item.time}</h3>
+                          <p className="text-xs font-medium text-gray-500">{item.title}</p>
+                        </div>
                      </div>
                    ))}
                 </div>
+
                 <div className={`rounded-2xl p-4 border flex items-center justify-between shadow-sm ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-200'}`}>
                    <div className="flex items-center gap-3">
-                      <div className="bg-blue-50 p-2 rounded-lg text-blue-600"><Icons.Settings className="w-5 h-5" /></div>
-                      <div><h4 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Vincular nuevo celular</h4><p className="text-xs text-gray-500">Recibe alertas en tiempo real.</p></div>
+                      <div className="bg-blue-50 p-2 rounded-lg text-blue-600">
+                        <Icons.Settings className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <h4 className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Vincular nuevo celular</h4>
+                        <p className="text-xs text-gray-500">Recibe alertas en tiempo real.</p>
+                      </div>
                    </div>
-                   <button onClick={() => setShowConnectModal(true)} className="text-xs text-blue-600 font-bold px-4 py-2 hover:bg-blue-50 rounded-lg transition-all">Conectar</button>
+                   <button 
+                     onClick={() => setShowConnectModal(true)}
+                     className="text-xs text-blue-600 font-bold px-4 py-2 hover:bg-blue-50 rounded-lg transition-all"
+                   >
+                     Conectar
+                   </button>
                 </div>
               </div>
+
               <div className="lg:col-span-5 flex flex-col h-full">
-                <div className="mb-4"><h2 className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Centro de Ayuda</h2><p className="text-xs text-gray-500">Asistente COAR IA</p></div>
+                <div className="mb-4">
+                  <h2 className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Centro de Ayuda</h2>
+                  <p className="text-xs text-gray-500">Asistente COAR IA</p>
+                </div>
                 <AIPanel />
               </div>
+
             </div>
           )}
         </div>
       </main>
-      {selectedStudent && <StudentDetailModal student={selectedStudent} onClose={() => setSelectedStudent(null)} />}
+
+      {selectedStudent && (
+        <StudentDetailModal 
+          student={selectedStudent} 
+          onClose={() => setSelectedStudent(null)} 
+        />
+      )}
+
       {showConnectModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className={`rounded-3xl p-8 max-w-md w-full shadow-2xl border ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100'}`}>
              <div className="flex justify-between items-start mb-6">
                <h3 className={`text-xl font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Vincular Celular</h3>
-               <button onClick={() => setShowConnectModal(false)} className="text-gray-400"><Icons.Close size={20} /></button>
+               <button onClick={() => setShowConnectModal(false)} className="text-gray-400">
+                 <Icons.Close size={20} />
+               </button>
              </div>
+             
              <form onSubmit={handleConnectPhone}>
-               <div className="mb-6"><input type="text" value={phoneCode} onChange={(e) => setPhoneCode(e.target.value)} className="w-full pl-4 pr-4 py-4 bg-gray-50 border-2 border-gray-200 rounded-xl text-center tracking-[0.5em] font-mono text-xl uppercase outline-none text-gray-900 focus:border-blue-500" placeholder="COAR-XXX1234" required /></div>
-               <button type="submit" className="w-full py-3.5 bg-blue-600 text-white rounded-xl font-bold">Vincular Dispositivo</button>
+               <div className="mb-6">
+                 <input 
+                   type="text" 
+                   value={phoneCode}
+                   onChange={(e) => setPhoneCode(e.target.value)}
+                   className="w-full pl-4 pr-4 py-4 bg-gray-50 border-2 border-gray-200 rounded-xl text-center tracking-[0.5em] font-mono text-xl uppercase outline-none text-gray-900 focus:border-blue-500"
+                   placeholder="COAR-XXX1234"
+                   required
+                 />
+               </div>
+               <button type="submit" className="w-full py-3.5 bg-blue-600 text-white rounded-xl font-bold">
+                 Vincular Dispositivo
+               </button>
              </form>
           </div>
         </div>

@@ -175,7 +175,7 @@ const App: React.FC = () => {
     }
   };
   
-  const handleRegisterStudent = (e: React.FormEvent) => {
+const handleRegisterStudent = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
     setIsLoggingIn(true);
@@ -186,45 +186,63 @@ const App: React.FC = () => {
       return;
     }
 
-    const randomId = Math.random().toString(36).substr(2, 9);
-    const linkCodeSuffix = Math.floor(1000 + Math.random() * 9000);
-    const namePrefix = studentRegData.name.substring(0, 3).toUpperCase().replace(/\s/g, 'X');
-    const generatedLinkCode = `COAR-${namePrefix}${linkCodeSuffix}`;
+    try {
+      // 1. Verificar duplicados
+      const q = query(collection(db, "students"), where("dni", "==", studentRegData.dni));
+      const querySnapshot = await getDocs(q);
 
-    const newStudent: Student = {
-      id: randomId,
-      name: studentRegData.name,
-      grade: studentRegData.grade as any,
-      section: studentRegData.section as any,
-      dni: studentRegData.dni,
-      originCity: studentRegData.originCity,
-      address: studentRegData.address || 'Sin dirección registrada',
-      birthDate: studentRegData.birthDate || '--/--/----',
-      bloodType: studentRegData.bloodType,
-      avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(studentRegData.name)}&background=random&size=128`,
-      status: StudentStatus.NORMAL,
-      statusText: 'En línea',
-      deviceId: 'Android-Gen',
-      batteryLevel: 100,
-      pickupAuthorization: PickupAuthStatus.NONE,
-      location: { lat: -15.885500, lng: -69.893000 },
-      linkCode: generatedLinkCode,
-      weeklySurvey: { completed: false, destination: '', transportMethod: 'OTHER', healthStatus: 'GOOD', comments: '' },
-      stressLevel: 'Bajo',
-      lastActivity: 'Cuenta creada recientemente'
-    };
+      if (!querySnapshot.empty) {
+        setAuthError('Este estudiante ya existe.');
+        setIsLoggingIn(false);
+        return;
+      }
 
-    setTimeout(() => {
-      setStudents(prev => [...prev, newStudent]);
-      setCurrentStudentId(newStudent.id);
+      // 2. Preparar datos
+      const linkCodeSuffix = Math.floor(1000 + Math.random() * 9000);
+      const namePrefix = studentRegData.name.substring(0, 3).toUpperCase().replace(/\s/g, 'X');
+      const generatedLinkCode = `COAR-${namePrefix}${linkCodeSuffix}`;
+
+      const newStudent = {
+        name: studentRegData.name,
+        dni: studentRegData.dni,
+        grade: studentRegData.grade,
+        section: studentRegData.section,
+        originCity: studentRegData.originCity,
+        address: studentRegData.address || '',
+        birthDate: studentRegData.birthDate || '',
+        bloodType: studentRegData.bloodType || 'O+',
+        avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(studentRegData.name)}&background=random&size=128`,
+        status: 'NORMAL',
+        statusText: 'En línea',
+        deviceId: 'Web-App',
+        batteryLevel: 100,
+        pickupAuthorization: 'NONE',
+        linkCode: generatedLinkCode,
+        weeklySurvey: { completed: false, destination: '', transportMethod: 'OTHER', healthStatus: 'GOOD', comments: '' },
+        createdAt: new Date().toISOString()
+      };
+
+      // 3. GUARDAR
+      const docRef = await addDoc(collection(db, "students"), newStudent);
+
+      // 4. Entrar
+      const studentWithId = { ...newStudent, id: docRef.id };
+      setStudents([studentWithId as any]);
+      setCurrentStudentId(docRef.id);
+      setUserRole('STUDENT');
+      
       setRegisterSuccess(true);
       setTimeout(() => {
-        setUserRole('STUDENT');
         setIsLoggingIn(false);
         setIsRegistering(false);
         setRegisterSuccess(false);
-      }, 1500);
-    }, 1500);
+      }, 1000);
+
+    } catch (error) {
+      console.error("Error Registro Estudiante:", error);
+      setAuthError("Error al guardar datos.");
+      setIsLoggingIn(false);
+    }
   };
 
   // --- RENDER HELPERS ---

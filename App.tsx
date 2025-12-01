@@ -7,6 +7,8 @@ import { StudentPortal } from './components/StudentPortal';
 import { StudentDetailModal } from './components/StudentDetailModal';
 import { INITIAL_STUDENTS, SCHEDULE_ITEMS, INITIAL_PARENTS } from './constants';
 import { Student, StudentStatus, PickupAuthStatus, UserRole, SurveyData, Parent } from './types';
+import { db } from './firebaseConfig';
+import { collection, addDoc, query, where, getDocs } from 'firebase/firestore';
 
 const App: React.FC = () => {
   // --- DATABASE STATE (Simulated Persistence) ---

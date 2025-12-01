@@ -13,6 +13,7 @@ const App: React.FC = () => {
   // --- DATABASE STATE ---
   const [parents, setParents] = useState<Parent[]>(INITIAL_PARENTS);
   const [students, setStudents] = useState<Student[]>([]); 
+  const [isLoading, setIsLoading] = useState(true); // NUEVO: Estado de carga global
 
   // --- AUTH & USER STATE ---
   const [userRole, setUserRole] = useState<UserRole>(null);
@@ -68,92 +69,106 @@ const App: React.FC = () => {
 
   // --- EFECTOS ---
 
-  // 1. CARGAR TODOS LOS ESTUDIANTES REALES DE FIREBASE
+  // 1. CARGA INICIAL Y RECUPERACIÓN DE SESIÓN (Unificados para evitar race conditions)
   useEffect(() => {
-    const fetchStudents = async () => {
+    const initializeApp = async () => {
+      setIsLoading(true);
+      
+      // A. Cargar datos básicos
       try {
-        const q = query(collection(db, "students")); 
-        const querySnapshot = await getDocs(q);
+        // Cargar Estudiantes
+        const qStudents = query(collection(db, "students")); 
+        const studentsSnap = await getDocs(qStudents);
         const fetchedStudents: Student[] = [];
-        querySnapshot.forEach((doc) => {
+        studentsSnap.forEach((doc) => {
           fetchedStudents.push({ ...doc.data(), id: doc.id } as Student);
         });
         setStudents(fetchedStudents);
-      } catch (error) {
-        console.error("Error al cargar estudiantes:", error);
-      }
-    };
 
-    fetchStudents();
-  }, []);
-
-  // 1.1 CARGAR PADRES (Necesario para saber el nombre del padre vinculado)
-  useEffect(() => {
-    const fetchParents = async () => {
-      try {
-        const q = query(collection(db, "parents"));
-        const querySnapshot = await getDocs(q);
+        // Cargar Padres (para tener los nombres a mano)
+        const qParents = query(collection(db, "parents"));
+        const parentsSnap = await getDocs(qParents);
         const fetchedParents: Parent[] = [];
-        querySnapshot.forEach((doc) => {
+        parentsSnap.forEach((doc) => {
           fetchedParents.push({ ...doc.data(), id: doc.id } as Parent);
         });
-        // Fusionamos con los iniciales o reemplazamos según prefieras. 
-        // Aquí reemplazamos si hay datos, sino mantenemos los mocks por si acaso.
-        if (fetchedParents.length > 0) {
-            setParents(fetchedParents);
-        }
+        if (fetchedParents.length > 0) setParents(fetchedParents);
+
       } catch (error) {
-        console.error("Error fetching parents:", error);
+        console.error("Error cargando datos:", error);
       }
-    };
-    fetchParents();
-  }, []);
 
-  // 2. RECUPERAR SESIÓN AL CARGAR
-  useEffect(() => {
-    const savedSession = localStorage.getItem('coar_session');
-    if (savedSession) {
-      try {
-        const session = JSON.parse(savedSession);
-        
-        if (session.role === 'PARENT') {
-           setCurrentUserParent(session.userData);
-           setUserRole('PARENT');
-        } else if (session.role === 'STUDENT') {
-           setCurrentStudentId(session.userData.id);
-           setUserRole('STUDENT');
+      // B. Restaurar Sesión
+      const savedSession = localStorage.getItem('coar_session');
+      if (savedSession) {
+        try {
+          const session = JSON.parse(savedSession);
+          if (session.role === 'PARENT') {
+             setCurrentUserParent(session.userData);
+             setUserRole('PARENT');
+          } else if (session.role === 'STUDENT') {
+             setCurrentStudentId(session.userData.id);
+             setUserRole('STUDENT');
+          }
+        } catch (e) {
+          console.error("Sesión inválida", e);
+          localStorage.removeItem('coar_session');
         }
-      } catch (e) {
-        console.error("Error al restaurar sesión", e);
-        localStorage.removeItem('coar_session');
       }
-    }
+      
+      setIsLoading(false); // Fin de la carga
+    };
+
+    initializeApp();
   }, []);
 
-  // 3. ESCUCHAR CAMBIOS EN TIEMPO REAL
+  // 2. LISTENERS EN TIEMPO REAL (PADRES Y ESTUDIANTES)
   useEffect(() => {
-    let unsubscribeLinked: () => void;
+    if (isLoading) return; // No suscribirse hasta terminar la carga inicial
 
+    let unsubscribe: () => void;
+
+    // CASO A: SI SOY PADRE -> Escucho al hijo vinculado
     if (userRole === 'PARENT' && currentUserParent && (currentUserParent as any).linkedStudentId) {
       const studentId = (currentUserParent as any).linkedStudentId;
       const studentRef = doc(db, "students", studentId);
       
-      unsubscribeLinked = onSnapshot(studentRef, (docSnapshot) => {
+      unsubscribe = onSnapshot(studentRef, (docSnapshot) => {
         if (docSnapshot.exists()) {
           const updatedStudent = { ...docSnapshot.data(), id: docSnapshot.id } as Student;
+          setStudents(prev => prev.map(s => s.id === updatedStudent.id ? updatedStudent : s));
+        }
+      });
+    }
+
+    // CASO B: SI SOY ESTUDIANTE -> Escucho mi propio documento (SOLUCIÓN TIEMPO REAL)
+    if (userRole === 'STUDENT' && currentStudentId) {
+      const myStudentRef = doc(db, "students", currentStudentId);
+      
+      unsubscribe = onSnapshot(myStudentRef, (docSnapshot) => {
+        if (docSnapshot.exists()) {
+          const updatedMyData = { ...docSnapshot.data(), id: docSnapshot.id } as Student;
+          
+          // Actualizo mi propio registro en el estado local
           setStudents(prev => {
-             return prev.map(s => s.id === updatedStudent.id ? updatedStudent : s);
+             // Si ya existe en la lista, lo actualizamos. Si no (raro), lo agregamos.
+             const exists = prev.find(s => s.id === updatedMyData.id);
+             if (exists) {
+               return prev.map(s => s.id === updatedMyData.id ? updatedMyData : s);
+             } else {
+               return [...prev, updatedMyData];
+             }
           });
         }
       });
     }
 
     return () => {
-      if (unsubscribeLinked) unsubscribeLinked();
+      if (unsubscribe) unsubscribe();
     };
-  }, [userRole, currentUserParent]);
+  }, [userRole, currentUserParent, currentStudentId, isLoading]);
 
-  // 4. GUARDAR PREFERENCIA DE TEMA
+  // 3. PERSISTENCIA DE TEMA
   useEffect(() => {
     localStorage.setItem('coar_theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
@@ -437,6 +452,16 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
     }
   };
 
+  // --- PANTALLA DE CARGA ---
+  if (isLoading) {
+    return (
+      <div className={`min-h-screen flex flex-col items-center justify-center ${isDarkMode ? 'bg-gray-900' : 'bg-white'}`}>
+         <div className="w-16 h-16 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+         <p className={`text-sm font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Cargando sistema...</p>
+      </div>
+    );
+  }
+
   // --- LOGIN VIEW ---
   if (!userRole) {
     return (
@@ -606,7 +631,6 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
     if (!myData) { setUserRole(null); return null; }
 
     // Encontrar al padre vinculado para pasar su nombre
-    // Se busca en la lista de padres cargada aquel cuyo linkedStudentId sea el ID de este alumno
     const linkedParent = parents.find(p => (p as any).linkedStudentId === myData.id);
     const parentName = linkedParent ? linkedParent.name : "Tu Apoderado";
 
@@ -614,10 +638,7 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
     const handleStudentResponse = async (approved: boolean) => {
        const newStatus = approved ? PickupAuthStatus.APPROVED : PickupAuthStatus.REJECTED;
        
-       // 1. Actualización optimista
-       setStudents(prev => prev.map(s => s.id === currentStudentId ? { ...s, pickupAuthorization: newStatus } : s));
-
-       // 2. Actualización en Firebase
+       // Actualización en Firebase (esto disparará la actualización en pantalla de todos)
        try {
          const studentRef = doc(db, "students", currentStudentId);
          await updateDoc(studentRef, { 
@@ -641,7 +662,7 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
         onRespondPickup={handleStudentResponse}
         onSubmitSurvey={handleSurveySubmit}
         onUpdateActivity={handleUpdateActivity}
-        requestingParentName={parentName} // Pasamos el nombre real
+        requestingParentName={parentName} 
       />
     );
   }
@@ -661,8 +682,10 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
   };
 
   const handleRequestPickup = async (studentId: string) => {
+    // 1. Actualización optimista
     setStudents(prev => prev.map(s => s.id === studentId ? { ...s, pickupAuthorization: PickupAuthStatus.PENDING } : s));
     
+    // 2. Actualización Real en Firebase
     try {
       const studentRef = doc(db, "students", studentId);
       await updateDoc(studentRef, { 
@@ -799,7 +822,6 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
                                      : "Estado regular."}
                             </div>
                             
-                            {/* BOTÓN SOLICITAR / REENVIAR */}
                             {isLinked && (student.pickupAuthorization === PickupAuthStatus.NONE || student.pickupAuthorization === PickupAuthStatus.REJECTED) && (
                               <button 
                                 onClick={() => handleRequestPickup(student.id)}

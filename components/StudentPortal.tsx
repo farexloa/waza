@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Icons } from './Icons';
 import { Student, PickupAuthStatus, SurveyData } from '../types';
@@ -15,56 +14,33 @@ interface StudentPortalProps {
 export const StudentPortal: React.FC<StudentPortalProps> = ({ student, onLogout, onRespondPickup, onSubmitSurvey }) => {
   const [activeTab, setActiveTab] = useState('home');
 
-  // --- RENDER: INCOMING REQUEST (PENDING) ---
+  // --- 1. ESTADO DE BLOQUEO: SOLICITUD PENDIENTE ---
+  // Se muestra como un modal elegante centrado, funciona bien en PC y Móvil
   if (student.pickupAuthorization === PickupAuthStatus.PENDING) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4 relative overflow-hidden">
-        {/* Background Pulse Animation */}
-        <div className="absolute inset-0 z-0">
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[500px] h-[500px] bg-blue-600/30 rounded-full animate-ping opacity-20"></div>
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[300px] h-[300px] bg-blue-500/40 rounded-full animate-ping opacity-40 animation-delay-200"></div>
-        </div>
-
-        <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border-8 border-gray-800 overflow-hidden relative h-[800px] flex flex-col z-10">
-           {/* Header */}
-           <div className="bg-blue-600 h-1/3 relative flex flex-col items-center justify-center pt-10 rounded-b-[3rem] shadow-lg">
-              <div className="absolute top-0 left-0 right-0 h-8 bg-gray-900 flex justify-center">
-                 <div className="w-32 h-4 bg-black rounded-b-xl"></div>
-              </div>
-              <h2 className="text-white font-bold text-lg uppercase tracking-widest animate-pulse mb-2">Solicitud de Salida</h2>
-              <div className="w-32 h-32 rounded-full border-4 border-white shadow-xl overflow-hidden relative">
+      <div className="min-h-screen bg-gray-900/95 backdrop-blur-sm flex items-center justify-center p-4">
+        <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-300">
+           <div className="bg-blue-600 p-8 text-center relative overflow-hidden">
+              <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+              <h2 className="text-white font-bold text-lg uppercase tracking-widest animate-pulse mb-4 relative z-10">Solicitud de Salida</h2>
+              <div className="w-24 h-24 rounded-full border-4 border-white shadow-xl mx-auto mb-3 relative z-10">
                  <img src={MOCK_USER.avatarUrl} alt="Parent" className="w-full h-full object-cover" />
               </div>
-              <p className="text-white font-bold text-xl mt-3">{MOCK_USER.name}</p>
-              <p className="text-blue-200 text-sm">{MOCK_USER.role}</p>
+              <p className="text-white font-bold text-xl relative z-10">{MOCK_USER.name}</p>
+              <p className="text-blue-200 text-sm relative z-10">Tu apoderado está en portería</p>
            </div>
-
-           {/* Body */}
-           <div className="flex-1 bg-white flex flex-col items-center justify-between p-8 pt-12">
-              <div className="text-center space-y-2">
-                 <h3 className="text-2xl font-bold text-gray-900">¿Estás listo para salir?</h3>
-                 <p className="text-gray-500 text-sm px-4">
-                   Tu apoderado se encuentra en la <span className="font-bold text-blue-600">Zona de Espera A</span>.
-                   Confirma tu salida para notificar al portón.
-                 </p>
+           
+           <div className="p-8 space-y-6">
+              <div className="text-center">
+                 <h3 className="text-xl font-bold text-gray-900">¿Estás listo para salir?</h3>
+                 <p className="text-gray-500 text-sm mt-2">Confirma para generar tu pase de salida digital.</p>
               </div>
-
-              <div className="w-full space-y-4 mb-8">
-                 <button 
-                   onClick={() => onRespondPickup(true)}
-                   className="w-full py-5 bg-green-500 hover:bg-green-600 text-white rounded-2xl font-bold text-lg shadow-lg shadow-green-200 flex items-center justify-center gap-3 transition-transform active:scale-95"
-                 >
-                   <div className="p-1 bg-white/20 rounded-full">
-                     <Icons.Shield className="w-6 h-6" />
-                   </div>
-                   CONFIRMAR SALIDA
+              <div className="grid gap-3">
+                 <button onClick={() => onRespondPickup(true)} className="py-4 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold shadow-lg shadow-green-200 flex items-center justify-center gap-2 transition-transform active:scale-95">
+                   <Icons.Shield className="w-5 h-5" /> CONFIRMAR SALIDA
                  </button>
-
-                 <button 
-                   onClick={() => onRespondPickup(false)}
-                   className="w-full py-4 bg-white border-2 border-red-100 text-red-500 hover:bg-red-50 rounded-2xl font-bold text-md transition-colors"
-                 >
-                   Rechazar / Aún en clase
+                 <button onClick={() => onRespondPickup(false)} className="py-4 border-2 border-gray-100 text-gray-500 hover:border-red-100 hover:text-red-500 rounded-xl font-bold transition-colors">
+                   Aún estoy en clase
                  </button>
               </div>
            </div>
@@ -73,178 +49,293 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({ student, onLogout,
     );
   }
 
-  // --- RENDER: APPROVED PASS (EXIT TICKET) ---
+  // --- 2. ESTADO DE BLOQUEO: PASE DE SALIDA (TICKET) ---
   if (student.pickupAuthorization === PickupAuthStatus.APPROVED) {
     return (
-      <div className="min-h-screen bg-green-800 flex items-center justify-center p-4">
-        <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl border-8 border-gray-900 overflow-hidden relative h-[800px] flex flex-col">
-           <div className="bg-green-500 h-24 relative flex items-center justify-center rounded-b-[3rem] shadow-md z-10">
-              <div className="absolute top-0 left-0 right-0 h-8 bg-gray-900 flex justify-center">
-                 <div className="w-32 h-4 bg-black rounded-b-xl"></div>
+      <div className="min-h-screen bg-green-600 flex items-center justify-center p-4 relative">
+        <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
+        
+        <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden relative flex flex-col z-10">
+           <div className="bg-green-500 p-6 text-center text-white relative overflow-hidden">
+              <div className="flex items-center justify-center gap-2 font-bold text-xl">
+                <Icons.Check className="w-6 h-6" /> PASE AUTORIZADO
               </div>
-              <h2 className="text-white font-bold text-xl flex items-center gap-2 mt-4">
-                <Icons.Shield className="w-6 h-6" /> PASE DE SALIDA
-              </h2>
            </div>
 
-           <div className="flex-1 bg-gray-50 p-6 flex flex-col items-center">
-              {/* TICKET VISUAL */}
-              <div className="w-full bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-200 relative">
-                 {/* Perforation Dots */}
-                 <div className="absolute top-1/2 -left-3 w-6 h-6 bg-gray-50 rounded-full"></div>
-                 <div className="absolute top-1/2 -right-3 w-6 h-6 bg-gray-50 rounded-full"></div>
-                 <div className="absolute top-1/2 left-4 right-4 border-b-2 border-dashed border-gray-200"></div>
-
-                 {/* Top Section */}
-                 <div className="p-6 text-center bg-blue-50">
-                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">COAR PUNO - SALIDA AUTORIZADA</p>
-                    <h1 className="text-3xl font-black text-gray-900">{student.name.split(' ')[0]} {student.name.split(' ')[1]?.charAt(0)}.</h1>
-                    <p className="text-sm font-medium text-gray-500 mt-1">{student.grade} "{student.section}" - {student.dni}</p>
+           <div className="p-8 flex flex-col items-center bg-gray-50">
+              {/* Ticket Visual */}
+              <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-200 relative overflow-hidden">
+                 <div className="h-4 bg-green-500 w-full"></div>
+                 <div className="p-6 text-center border-b border-dashed border-gray-200 relative">
+                    {/* Muescas del ticket */}
+                    <div className="absolute -left-3 bottom-[-12px] w-6 h-6 bg-gray-50 rounded-full"></div>
+                    <div className="absolute -right-3 bottom-[-12px] w-6 h-6 bg-gray-50 rounded-full"></div>
+                    
+                    <h2 className="text-2xl font-black text-gray-900">{student.name}</h2>
+                    <p className="text-sm text-gray-500 mt-1">{student.grade} "{student.section}"</p>
+                    <p className="text-xs font-mono text-gray-400 mt-2">{student.dni}</p>
                  </div>
-
-                 {/* Bottom Section (QR) */}
-                 <div className="p-8 flex flex-col items-center bg-white">
-                    <div className="w-48 h-48 bg-gray-900 rounded-xl p-2 mb-4 flex items-center justify-center">
-                        <div className="w-full h-full border-4 border-white flex items-center justify-center">
-                             {/* Simulated QR */}
-                             <div className="grid grid-cols-6 gap-1 opacity-80">
+                 <div className="p-8 flex justify-center bg-white">
+                    <div className="w-48 h-48 bg-gray-900 rounded-lg p-2 flex items-center justify-center">
+                        <div className="w-full h-full border-2 border-white bg-white flex items-center justify-center">
+                             {/* QR Simulado */}
+                             <div className="grid grid-cols-6 gap-1 opacity-80 w-32 h-32">
                                 {[...Array(36)].map((_, i) => (
-                                   <div key={i} className={`w-full h-full rounded-sm ${Math.random() > 0.5 ? 'bg-white' : 'bg-transparent'}`}></div>
+                                   <div key={i} className={`w-full h-full rounded-sm ${Math.random() > 0.4 ? 'bg-black' : 'bg-transparent'}`}></div>
                                 ))}
                              </div>
                         </div>
                     </div>
-                    <p className="text-xs text-gray-400 text-center px-4">
-                      Muestra este código en el Portón Principal al personal de seguridad.
-                    </p>
-                    <p className="mt-4 text-lg font-mono font-bold text-green-600">
+                 </div>
+                 <div className="bg-gray-50 p-3 text-center border-t border-gray-100">
+                    <p className="text-xl font-mono font-bold text-green-600">
                        {new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
                     </p>
                  </div>
               </div>
 
-              <div className="mt-8 text-center">
-                 <p className="text-gray-500 text-sm mb-4">Tu apoderado ha sido notificado.</p>
-                 <button onClick={onLogout} className="text-gray-400 font-medium text-sm hover:text-gray-600 underline">
-                   Cerrar Sesión
-                 </button>
-              </div>
+              <button onClick={onLogout} className="mt-8 text-gray-400 text-sm hover:text-gray-600 underline">
+                Cerrar Sesión
+              </button>
            </div>
         </div>
       </div>
     );
   }
 
-  // --- RENDER: PHONE FRAME (WRAPPER) ---
-return (
-    <div className="min-h-screen bg-gray-50 flex justify-center">
-      {/* Contenedor principal: En móvil ocupa todo, en PC se centra como una app móvil moderna */}
-      <div className="w-full max-w-md bg-white shadow-xl min-h-screen flex flex-col relative">
+  // --- 3. DASHBOARD PRINCIPAL (Layout Híbrido: Sidebar en PC / Bottom Nav en Móvil) ---
+  return (
+    <div className="flex h-screen w-full bg-[#F3F5F7] overflow-hidden">
+      
+      {/* === SIDEBAR (SOLO PC) === */}
+      {/* Se oculta en móvil (hidden) y se muestra en pantallas grandes (lg:flex) */}
+      <aside className="hidden lg:flex w-72 bg-white border-r border-gray-200 flex-col z-20 shadow-sm">
+        {/* Sidebar Header */}
+        <div className="p-6 flex items-center gap-3">
+          <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
+            <Icons.Shield className="w-6 h-6" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold text-gray-900 leading-tight">COAR Puno</h1>
+            <p className="text-xs font-medium text-gray-500">Portal Estudiante</p>
+          </div>
+        </div>
+
+        {/* Navigation */}
+        <nav className="flex-1 px-4 py-6 space-y-2">
+           <p className="px-4 text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Menú Principal</p>
+           
+           <button 
+             onClick={() => setActiveTab('home')}
+             className={`w-full flex items-center px-4 py-3.5 rounded-xl text-sm font-bold transition-all ${
+               activeTab === 'home' 
+                 ? 'bg-blue-50 text-blue-700 shadow-sm' 
+                 : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+             }`}
+           >
+             <Icons.Dashboard className={`w-5 h-5 mr-3 ${activeTab === 'home' ? 'text-blue-600' : 'text-gray-400'}`} />
+             Panel de Control
+           </button>
+
+           <button 
+             onClick={() => setActiveTab('survey')}
+             className={`w-full flex items-center px-4 py-3.5 rounded-xl text-sm font-bold transition-all ${
+               activeTab === 'survey' 
+                 ? 'bg-purple-50 text-purple-700 shadow-sm' 
+                 : 'text-gray-500 hover:bg-gray-50 hover:text-gray-900'
+             }`}
+           >
+             <Icons.Survey className={`w-5 h-5 mr-3 ${activeTab === 'survey' ? 'text-purple-600' : 'text-gray-400'}`} />
+             Encuesta Semanal
+           </button>
+        </nav>
+
+        {/* Sidebar Footer */}
+        <div className="p-4 border-t border-gray-100">
+           <div className="bg-gray-50 rounded-xl p-3 flex items-center gap-3 mb-3">
+              <img src={student.avatarUrl} alt="User" className="w-10 h-10 rounded-full border border-gray-200" />
+              <div className="overflow-hidden">
+                 <p className="text-sm font-bold text-gray-900 truncate">{student.name}</p>
+                 <p className="text-xs text-gray-500">{student.dni}</p>
+              </div>
+           </div>
+           <button onClick={onLogout} className="w-full flex items-center justify-center px-4 py-2 text-red-500 text-xs font-bold hover:bg-red-50 rounded-lg transition-colors">
+              <Icons.Close className="w-4 h-4 mr-2" /> Cerrar Sesión
+           </button>
+        </div>
+      </aside>
+
+      {/* === ÁREA PRINCIPAL === */}
+      <main className="flex-1 flex flex-col min-w-0 h-full relative">
         
-        {/* CONTENIDO (Sin Notch, sin bordes negros) */}
-        {activeTab === 'survey' ? (
-           <SurveyForm 
-             studentCode={student.linkCode}
-             onSubmit={(data) => {
-               onSubmitSurvey?.(data);
-               setActiveTab('home');
-             }} 
-             onCancel={() => setActiveTab('home')}
-           />
-        ) : (
-          /* HOME DASHBOARD */
-          <>
-            <header className="bg-gradient-to-br from-blue-700 to-blue-900 p-6 text-white pt-8 pb-12 rounded-b-[2rem] shadow-lg relative z-10">
-              <div className="flex items-start justify-between mb-6">
-                <div>
-                  <p className="text-blue-200 text-xs uppercase tracking-wider font-bold mb-1">Estudiante COAR</p>
-                  <h1 className="text-2xl font-bold">{student.name}</h1>
-                </div>
-                <div className="bg-white/10 p-1 rounded-full backdrop-blur-md border border-white/20">
-                  <img src={student.avatarUrl} alt="Profile" className="w-12 h-12 rounded-full object-cover" />
-                </div>
+        {/* HEADER (Adaptable) */}
+        <header className="bg-white border-b border-gray-200 h-16 lg:h-20 px-4 lg:px-8 flex items-center justify-between z-10 flex-shrink-0">
+           {/* Mobile Logo */}
+           <div className="lg:hidden flex items-center gap-2">
+              <div className="bg-blue-600 p-1.5 rounded-lg text-white">
+                <Icons.Shield className="w-4 h-4" />
               </div>
-              
-              <div className="bg-white/10 backdrop-blur-md rounded-xl p-4 flex justify-between border border-white/10">
-                <div className="text-center border-r border-white/10 pr-4 flex-1">
-                  <p className="text-blue-200 text-[10px] uppercase">DNI</p>
-                  <p className="font-mono font-bold text-lg">{student.dni}</p>
-                </div>
-                <div className="text-center pl-4 flex-1">
-                  <p className="text-blue-200 text-[10px] uppercase">Aula</p>
-                  <p className="font-bold text-lg">{student.grade} {student.section}</p>
-                </div>
-              </div>
-            </header>
+              <span className="font-bold text-gray-900">COAR</span>
+           </div>
 
-            <div className="flex-1 p-6 -mt-6 z-20 overflow-y-auto space-y-6 pb-24">
+           {/* Desktop Title */}
+           <div className="hidden lg:block">
+              <h2 className="text-xl font-bold text-gray-900">
+                {activeTab === 'home' ? 'Hola, ' + student.name.split(' ')[0] : 'Encuesta de Salida'}
+              </h2>
+              <p className="text-xs text-gray-500">
+                {activeTab === 'home' ? 'Bienvenido a tu panel estudiantil.' : 'Completa tus datos para el fin de semana.'}
+              </p>
+           </div>
+
+           {/* Status Badge */}
+           <div className="flex items-center gap-3">
+              <span className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 rounded-full text-xs font-bold border border-green-100">
+                 <span className="relative flex h-2 w-2">
+                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
+                   <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
+                 </span>
+                 Sistema En Línea
+              </span>
+           </div>
+        </header>
+
+        {/* CONTENIDO SCROLLABLE */}
+        {/* Aquí es donde ocurre la magia: grid responsivo */}
+        <div className="flex-1 overflow-y-auto p-4 lg:p-8 pb-24 lg:pb-8">
+           <div className="max-w-5xl mx-auto">
               
-              {/* SURVEY ALERT */}
-              {!student.weeklySurvey.completed && (
-                <button 
-                  onClick={() => setActiveTab('survey')}
-                  className="w-full bg-purple-600 rounded-2xl p-5 shadow-lg shadow-purple-200 text-white relative overflow-hidden flex items-center justify-between group transform transition-all active:scale-95"
-                >
-                   <div className="absolute -left-4 -bottom-4 w-20 h-20 bg-purple-500 rounded-full opacity-50"></div>
-                   <div className="relative z-10 text-left">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="bg-white/20 px-2 py-0.5 rounded text-[10px] font-bold uppercase">Pendiente</span>
-                        <Icons.Check className="w-4 h-4" />
+              {activeTab === 'home' && (
+                <div className="space-y-6">
+                  {/* Hero Card - ID Digital */}
+                  <div className="w-full bg-gradient-to-r from-blue-700 to-indigo-800 rounded-3xl p-6 lg:p-10 text-white shadow-xl relative overflow-hidden">
+                      <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+                      
+                      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10">
+                         <div>
+                            <span className="inline-block px-3 py-1 bg-white/10 backdrop-blur-md rounded-lg text-[10px] font-bold uppercase tracking-widest mb-3 border border-white/10">
+                              Credencial Digital
+                            </span>
+                            <h1 className="text-2xl lg:text-4xl font-bold mb-2">{student.name}</h1>
+                            <div className="flex flex-wrap gap-2 text-sm text-blue-100">
+                               <span className="font-medium">{student.grade} Grado</span>
+                               <span>•</span>
+                               <span className="font-medium">Sección "{student.section}"</span>
+                               <span>•</span>
+                               <span className="font-mono opacity-80">{student.dni}</span>
+                            </div>
+                         </div>
+                         
+                         {/* Código de Vinculación */}
+                         <div className="bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/20 min-w-[160px] text-center">
+                            <p className="text-[10px] text-blue-200 uppercase font-bold mb-1">Código Familiar</p>
+                            <p className="text-2xl font-mono font-bold tracking-widest">{student.linkCode}</p>
+                         </div>
                       </div>
-                      <h3 className="font-bold text-lg">Encuesta de Salida</h3>
-                      <p className="text-purple-100 text-xs">Obligatorio los miércoles</p>
-                   </div>
-                   <div className="w-10 h-10 bg-white text-purple-600 rounded-full flex items-center justify-center shadow-sm">
-                      <Icons.Survey className="w-5 h-5" />
-                   </div>
-                </button>
-              )}
+                  </div>
 
-              {/* Link Code Card */}
-              <div className="bg-indigo-600 rounded-2xl p-5 shadow-lg shadow-indigo-200 text-white relative overflow-hidden">
-                <div className="absolute -right-6 -top-6 w-24 h-24 bg-indigo-500 rounded-full opacity-50"></div>
-                <div className="relative z-10">
-                  <h3 className="text-xs font-bold text-indigo-200 uppercase tracking-wider mb-1">Vinculación Familiar</h3>
-                  <p className="text-sm text-indigo-100 mb-3">Comparte este código con tu apoderado.</p>
-                  <div className="bg-white/20 backdrop-blur-md rounded-xl p-3 text-center border border-white/30">
-                    <span className="font-mono text-2xl font-bold tracking-widest">{student.linkCode}</span>
+                  {/* Grid de Widgets */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                     
+                     {/* Widget 1: Estado de Encuesta */}
+                     <div className={`col-span-1 rounded-3xl p-6 border transition-all ${!student.weeklySurvey.completed ? 'bg-purple-600 text-white border-purple-500 shadow-lg shadow-purple-200' : 'bg-white border-gray-100 shadow-sm'}`}>
+                        <div className="flex justify-between items-start mb-4">
+                           <div className={`p-3 rounded-2xl ${!student.weeklySurvey.completed ? 'bg-white/20' : 'bg-green-50 text-green-600'}`}>
+                              {!student.weeklySurvey.completed ? <Icons.Survey className="w-6 h-6" /> : <Icons.Check className="w-6 h-6" />}
+                           </div>
+                           {!student.weeklySurvey.completed && <span className="px-2 py-1 bg-white/20 rounded text-[10px] font-bold uppercase">Pendiente</span>}
+                        </div>
+                        <h3 className="text-lg font-bold mb-1">{!student.weeklySurvey.completed ? 'Encuesta Semanal' : 'Todo Listo'}</h3>
+                        <p className={`text-sm ${!student.weeklySurvey.completed ? 'text-purple-100' : 'text-gray-500'}`}>
+                           {!student.weeklySurvey.completed ? 'Debes completarla para autorizar tu salida.' : 'Has completado el registro de esta semana.'}
+                        </p>
+                        {!student.weeklySurvey.completed && (
+                           <button onClick={() => setActiveTab('survey')} className="mt-4 w-full py-2 bg-white text-purple-600 rounded-xl font-bold text-sm shadow-sm hover:bg-gray-50 transition-colors">
+                              Completar Ahora
+                           </button>
+                        )}
+                     </div>
+
+                     {/* Widget 2: Menú */}
+                     <div className="col-span-1 bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
+                        <div className="flex justify-between items-center mb-4">
+                           <h3 className="font-bold text-gray-900 flex items-center gap-2">
+                              <Icons.Menu className="w-5 h-5 text-orange-500" /> Menú
+                           </h3>
+                           <span className="text-[10px] bg-orange-100 text-orange-700 px-2 py-1 rounded-full font-bold">Hoy</span>
+                        </div>
+                        <div className="bg-orange-50/50 rounded-2xl p-4">
+                           <p className="text-xs text-gray-400 uppercase font-bold mb-1">Almuerzo</p>
+                           <p className="font-bold text-gray-800 text-sm">Lentejas con Arroz y Pollo</p>
+                           <p className="text-xs text-gray-500 mt-1">Refresco: Chicha Morada</p>
+                        </div>
+                     </div>
+
+                     {/* Widget 3: Info */}
+                     <div className="col-span-1 bg-white rounded-3xl p-6 border border-gray-100 shadow-sm flex flex-col justify-center">
+                        <div className="flex items-center gap-4 mb-4">
+                           <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center text-blue-600">
+                              <Icons.MapPin className="w-5 h-5" />
+                           </div>
+                           <div>
+                              <p className="text-xs text-gray-400 font-bold uppercase">Ubicación Actual</p>
+                              <p className="font-bold text-gray-900 text-sm">Campus COAR Puno</p>
+                           </div>
+                        </div>
+                        <div className="w-full bg-gray-100 rounded-full h-2 mb-2 overflow-hidden">
+                           <div className="bg-green-500 h-full w-[85%]"></div>
+                        </div>
+                        <p className="text-xs text-right text-gray-400">Batería: 85%</p>
+                     </div>
                   </div>
                 </div>
-              </div>
+              )}
 
-              {/* Menu del dia */}
-              <div className="bg-orange-50 rounded-2xl p-5 border border-orange-100">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="font-bold text-orange-800 text-sm">Menú de Hoy</h3>
-                  <Icons.Menu className="w-4 h-4 text-orange-400" />
-                </div>
-                <div className="bg-white rounded-xl p-3 shadow-sm">
-                  <p className="text-sm font-medium text-gray-800">🥘 Lentejas con Arroz y Pollo</p>
-                  <p className="text-xs text-gray-400 mt-1">Refresco: Chicha Morada</p>
-                </div>
-              </div>
+              {activeTab === 'survey' && (
+                 <div className="bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden min-h-[600px]">
+                    <SurveyForm 
+                       studentCode={student.linkCode}
+                       onSubmit={(data) => {
+                         onSubmitSurvey?.(data);
+                         setActiveTab('home');
+                       }}
+                       onCancel={() => setActiveTab('home')}
+                    />
+                 </div>
+              )}
+           </div>
+        </div>
 
-            </div>
-          </>
-        )}
-
-        {/* Bottom Nav - Fijo en la parte inferior */}
-        <div className="bg-white border-t border-gray-100 p-4 px-8 pb-6 flex justify-between sticky bottom-0 z-30">
-           <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'home' ? 'text-blue-600' : 'text-gray-300 hover:text-gray-500'}`}>
-              <Icons.Dashboard className="w-6 h-6" />
+        {/* === BOTTOM NAVIGATION (SOLO MÓVIL) === */}
+        {/* Se muestra en móvil (flex) y se oculta en PC (lg:hidden) */}
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-6 py-3 pb-6 flex justify-around items-center z-30 shadow-[0_-5px_20px_rgba(0,0,0,0.05)]">
+           <button 
+             onClick={() => setActiveTab('home')}
+             className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${activeTab === 'home' ? 'text-blue-600 scale-105' : 'text-gray-400'}`}
+           >
+              <Icons.Dashboard className={`w-6 h-6 ${activeTab === 'home' && 'fill-current opacity-20'}`} />
               <span className="text-[10px] font-bold">Inicio</span>
            </button>
-           <button onClick={() => setActiveTab('survey')} className={`flex flex-col items-center gap-1 transition-colors ${activeTab === 'survey' ? 'text-purple-600' : 'text-gray-300 hover:text-gray-500'}`}>
-              <Icons.Survey className="w-6 h-6" />
+
+           <div className="w-px h-8 bg-gray-100"></div>
+
+           <button 
+             onClick={() => setActiveTab('survey')}
+             className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${activeTab === 'survey' ? 'text-purple-600 scale-105' : 'text-gray-400'}`}
+           >
+              <Icons.Survey className={`w-6 h-6 ${activeTab === 'survey' && 'fill-current opacity-20'}`} />
               <span className="text-[10px] font-bold">Encuesta</span>
            </button>
-           <button onClick={onLogout} className="text-gray-300 flex flex-col items-center gap-1 hover:text-red-500 transition-colors">
+
+           <div className="w-px h-8 bg-gray-100"></div>
+
+           <button onClick={onLogout} className="flex flex-col items-center gap-1 p-2 rounded-xl text-gray-400 hover:text-red-500 transition-colors">
               <Icons.Close className="w-6 h-6" />
               <span className="text-[10px] font-bold">Salir</span>
            </button>
         </div>
 
-      </div>
+      </main>
     </div>
   );
 };

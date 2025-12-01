@@ -5,7 +5,7 @@ import { Icons } from './components/Icons';
 import { StudentPortal } from './components/StudentPortal';
 import { StudentDetailModal } from './components/StudentDetailModal';
 import { INITIAL_STUDENTS, SCHEDULE_ITEMS, INITIAL_PARENTS } from './constants';
-import { Student, StudentStatus, PickupAuthStatus, UserRole, SurveyData, Parent, StudentActivity } from './types';
+import { Student, StudentStatus, cckupAuthStatus, UserRole, SurveyData, Parent, StudentActivity } from './types';
 import { db } from './firebaseConfig';
 import { collection, addDoc, query, where, getDocs, updateDoc, doc, onSnapshot } from 'firebase/firestore';
 
@@ -642,10 +642,22 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
     }
   };
 
-  const handleRequestPickup = (studentId: string) => {
-    setStudents(prev => prev.map(s => s.id === studentId ? { ...s, pickupAuthorization: PickupAuthStatus.PENDING } : s));
-    alert("Solicitud enviada.");
-  };
+const handleRequestPickup = async (studentId: string) => {
+  // 1. Actualización optimista (UI inmediata)
+  setStudents(prev => prev.map(s => s.id === studentId ? { ...s, pickupAuthorization: PickupAuthStatus.PENDING } : s));
+  
+  try {
+    // 2. Actualización en Firebase (Esto disparará la notificación en el hijo)
+    const studentRef = doc(db, "students", studentId);
+    await updateDoc(studentRef, { 
+      pickupAuthorization: 'PENDING' 
+    });
+    alert("Solicitud enviada al dispositivo del estudiante.");
+  } catch (error) {
+    console.error("Error al solicitar salida:", error);
+    alert("Hubo un error al enviar la solicitud.");
+  }
+};
 
   return (
     <div className={`flex h-screen overflow-hidden transition-colors duration-300 ${isDarkMode ? 'bg-gray-900' : 'bg-[#F3F5F7]'}`}>

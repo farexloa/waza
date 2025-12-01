@@ -19,10 +19,15 @@ const App: React.FC = () => {
   const [currentUserParent, setCurrentUserParent] = useState<Parent | null>(null);
   const [currentStudentId, setCurrentStudentId] = useState<string>('');
   
-  // --- UI STATE ---
+  // --- UI STATE (PERSISTENCIA MODO OSCURO) ---
+  // 1. Inicializamos leyendo localStorage para ver si ya estaba en oscuro
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const savedTheme = localStorage.getItem('coar_theme');
+    return savedTheme === 'dark';
+  });
+
   const [loginTab, setLoginTab] = useState<'PARENT' | 'STUDENT'>('PARENT');
   const [isRegistering, setIsRegistering] = useState(false); 
-  const [isDarkMode, setIsDarkMode] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
   
@@ -59,19 +64,21 @@ const App: React.FC = () => {
   const [phoneCode, setPhoneCode] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
 
-  // --- 1. EFECTO PARA RECUPERAR SESIÓN AL CARGAR (MANTENER SESIÓN) ---
+  // --- EFECTOS (Side Effects) ---
+
+  // 1. RECUPERAR SESIÓN AL CARGAR
   useEffect(() => {
     const savedSession = localStorage.getItem('coar_session');
     if (savedSession) {
       try {
         const session = JSON.parse(savedSession);
         
-        // Restauramos la lista de estudiantes (para mantener el orden del hijo vinculado)
+        // Restaurar lista de estudiantes
         if (session.students && session.students.length > 0) {
           setStudents(session.students);
         }
         
-        // Restauramos al usuario
+        // Restaurar usuario
         if (session.role === 'PARENT') {
            setCurrentUserParent(session.userData);
            setUserRole('PARENT');
@@ -86,7 +93,13 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // --- 2. FUNCIONES AUXILIARES DE SESIÓN ---
+  // 2. GUARDAR PREFERENCIA DE TEMA (NUEVO)
+  useEffect(() => {
+    localStorage.setItem('coar_theme', isDarkMode ? 'dark' : 'light');
+  }, [isDarkMode]);
+
+
+  // --- FUNCIONES AUXILIARES ---
   const saveSession = (role: UserRole, userData: any, currentStudents: Student[]) => {
     localStorage.setItem('coar_session', JSON.stringify({
       role,
@@ -101,9 +114,10 @@ const App: React.FC = () => {
     setCurrentUserParent(null);
     setCurrentStudentId('');
     setLoginTab('PARENT');
-    // Opcional: Recargar la lista original de estudiantes al salir
     setStudents(INITIAL_STUDENTS); 
   };
+
+  const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
   // --- HANDLERS ---
   const handleLogin = async (e: React.FormEvent) => {
@@ -121,36 +135,30 @@ const App: React.FC = () => {
           const doc = querySnapshot.docs[0];
           const parentData = { ...doc.data(), id: doc.id } as Parent; 
           
-          // LÓGICA DE VINCULACIÓN AL LOGIN
           let updatedStudents = [...students];
-          if (parentData.familyCode) { // O linkedStudentId si lo guardaste así
-             // Intentamos buscar si hay un alumno vinculado en la base de datos con ese código
-             // O si ya guardamos el ID del alumno en el padre (mejor)
-             if ((parentData as any).linkedStudentId) {
-                const studentId = (parentData as any).linkedStudentId;
-                const studentRef = query(collection(db, "students"), where("__name__", "==", studentId));
-                const studentSnap = await getDocs(studentRef);
-                
-                if (!studentSnap.empty) {
-                   const sDoc = studentSnap.docs[0];
-                   const linkedStudent = { ...sDoc.data(), id: sDoc.id } as Student;
-                   // Ponemos al hijo al inicio
-                   updatedStudents = [linkedStudent, ...students.filter(s => s.id !== linkedStudent.id)];
-                   setStudents(updatedStudents);
-                }
+          
+          if ((parentData as any).linkedStudentId) {
+             const studentId = (parentData as any).linkedStudentId;
+             const studentRef = query(collection(db, "students"), where("__name__", "==", studentId));
+             const studentSnap = await getDocs(studentRef);
+             
+             if (!studentSnap.empty) {
+                const sDoc = studentSnap.docs[0];
+                const linkedStudent = { ...sDoc.data(), id: sDoc.id } as Student;
+                updatedStudents = [linkedStudent, ...students.filter(s => s.id !== linkedStudent.id)];
+                setStudents(updatedStudents);
              }
           }
           
           setCurrentUserParent(parentData);
           setUserRole('PARENT');
 
-          // Guardar sesión si el checkbox está activo
           if (keepSession) {
             saveSession('PARENT', parentData, updatedStudents);
           }
 
         } else {
-          // Intento por Código de Familia (Legacy)
+          // Intento por Código de Familia
           const qCode = query(collection(db, "parents"), where("familyCode", "==", authInput));
           const codeSnapshot = await getDocs(qCode);
           
@@ -207,7 +215,6 @@ const App: React.FC = () => {
     }
 
     try {
-      // 1. Verificar si ya existe el padre
       const q = query(collection(db, "parents"), where("dni", "==", parentRegData.dni));
       const querySnapshot = await getDocs(q);
 
@@ -217,7 +224,6 @@ const App: React.FC = () => {
         return;
       }
 
-      // 2. Verificar vinculación por Código Familiar (Con corrección de mayúsculas)
       let linkedStudentData: Student | null = null;
       if (parentRegData.familyCode) {
          const cleanCode = parentRegData.familyCode.trim().toUpperCase();
@@ -234,7 +240,6 @@ const App: React.FC = () => {
          }
       }
 
-      // 3. Crear datos y GUARDAR
       const newCode = `FAM-${Math.floor(1000 + Math.random() * 9000)}`;
       const newParent = {
         name: parentRegData.name,
@@ -250,18 +255,15 @@ const App: React.FC = () => {
 
       await addDoc(collection(db, "parents"), newParent);
 
-      // 4. Actualizar estado local (poner hijo primero)
       let updatedStudents = [...students];
       if (linkedStudentData) {
          updatedStudents = [linkedStudentData, ...students.filter(s => s.id !== linkedStudentData!.id)];
          setStudents(updatedStudents);
       }
 
-      // 5. Entrar automáticamente y GUARDAR SESIÓN
       setCurrentUserParent(newParent as any);
       setUserRole('PARENT');
       
-      // Guardamos la sesión automáticamente al registrarse para mejor UX
       saveSession('PARENT', newParent, updatedStudents);
 
       setRegisterSuccess(true);
@@ -336,7 +338,6 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
       setCurrentStudentId(docRef.id);
       setUserRole('STUDENT');
       
-      // Guardar sesión de estudiante también
       saveSession('STUDENT', studentWithId, newStudentList);
 
       setRegisterSuccess(true);
@@ -352,8 +353,6 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
       setIsLoggingIn(false);
     }
   };
-
-  const toggleTheme = () => setIsDarkMode(!isDarkMode);
 
   // --- LOGIN VIEW ---
   if (!userRole) {
@@ -466,7 +465,6 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
                {loginTab === 'PARENT' ? (
                  /* Parent Reg Form */
                  <form onSubmit={handleRegisterParent} className="space-y-4">
-                   {/* CÓDIGO FAMILIAR AL INICIO */}
                    <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl">
                       <label className="text-[10px] font-bold text-blue-800 ml-1 flex items-center gap-1">
                         <Icons.Shield className="w-3 h-3"/> CÓDIGO FAMILIAR (DEL ESTUDIANTE)

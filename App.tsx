@@ -108,10 +108,11 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // 3. ESCUCHAR CAMBIOS EN TIEMPO REAL
+  // 3. ESCUCHAR CAMBIOS EN TIEMPO REAL (LÓGICA CORE DE SINCRONIZACIÓN)
   useEffect(() => {
     let unsubscribeLinked: () => void;
 
+    // Si soy un padre y tengo un hijo vinculado, escucho sus cambios (respuestas)
     if (userRole === 'PARENT' && currentUserParent && (currentUserParent as any).linkedStudentId) {
       const studentId = (currentUserParent as any).linkedStudentId;
       const studentRef = doc(db, "students", studentId);
@@ -184,7 +185,7 @@ const App: React.FC = () => {
     setVisibleCount(8);
   };
 
-  // --- HANDLER: ACTUALIZAR ACTIVIDAD ESTUDIANTE ---
+  // --- HANDLER: ACTUALIZAR ACTIVIDAD ESTUDIANTE (PORTAL HIJO) ---
   const handleUpdateActivity = async (activity: StudentActivity) => {
     const updatedStudents = students.map(s => 
        s.id === currentStudentId ? { ...s, currentActivity: activity } : s
@@ -578,13 +579,29 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
     );
   }
 
-  // --- STUDENT PORTAL VIEW ---
+  // --- STUDENT PORTAL VIEW (LÓGICA CONECTADA A FIREBASE) ---
   if (userRole === 'STUDENT') {
     const myData = students.find(s => s.id === currentStudentId);
     if (!myData) { setUserRole(null); return null; }
 
-    const handleStudentResponse = (approved: boolean) => {
-       setStudents(prev => prev.map(s => s.id === currentStudentId ? { ...s, pickupAuthorization: approved ? PickupAuthStatus.APPROVED : PickupAuthStatus.REJECTED } : s));
+    // --- AQUÍ ESTÁ EL CAMBIO CLAVE ---
+    // Esta función ahora escribe en Firebase para que el padre lo vea en tiempo real
+    const handleStudentResponse = async (approved: boolean) => {
+       const newStatus = approved ? PickupAuthStatus.APPROVED : PickupAuthStatus.REJECTED;
+       
+       // 1. Actualización optimista
+       setStudents(prev => prev.map(s => s.id === currentStudentId ? { ...s, pickupAuthorization: newStatus } : s));
+
+       // 2. Actualización en Firebase (Dispara la actualización en la pantalla del padre)
+       try {
+         const studentRef = doc(db, "students", currentStudentId);
+         await updateDoc(studentRef, { 
+           pickupAuthorization: newStatus
+         });
+       } catch (error) {
+         console.error("Error updating pickup status:", error);
+         alert("Error de conexión al responder.");
+       }
     };
 
     const handleSurveySubmit = (data: SurveyData) => {
@@ -618,9 +635,8 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
     }
   };
 
-  // --- FUNCIÓN ACTUALIZADA Y CORREGIDA ---
   const handleRequestPickup = async (studentId: string) => {
-    // 1. Actualización optimista (UI)
+    // 1. Actualización optimista
     setStudents(prev => prev.map(s => s.id === studentId ? { ...s, pickupAuthorization: PickupAuthStatus.PENDING } : s));
     
     // 2. Actualización Real en Firebase
@@ -754,12 +770,15 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
                         </div>
 
                         <div className={`pt-4 border-t flex items-center justify-between ${isDarkMode ? 'border-gray-700' : 'border-gray-100'}`}>
+                            {/* ESTADO DE SALIDA PARA EL PADRE */}
                             <div className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                {student.pickupAuthorization === PickupAuthStatus.PENDING 
                                  ? "Esperando confirmación..." 
                                  : student.pickupAuthorization === PickupAuthStatus.APPROVED 
-                                   ? "Salida confirmada." 
-                                   : "Estado regular."}
+                                   ? "✅ Salida confirmada." 
+                                   : student.pickupAuthorization === PickupAuthStatus.REJECTED 
+                                     ? "❌ Solicitud rechazada (En clases)." 
+                                     : "Estado regular."}
                             </div>
                             
                             {isLinked && student.pickupAuthorization === PickupAuthStatus.NONE && (

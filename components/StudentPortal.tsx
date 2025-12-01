@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Icons } from './Icons';
 import { Student, PickupAuthStatus, SurveyData, StudentActivity } from '../types';
 import { MOCK_USER } from '../constants';
@@ -9,7 +9,7 @@ interface StudentPortalProps {
   onLogout: () => void;
   onRespondPickup: (approved: boolean) => void;
   onSubmitSurvey?: (data: SurveyData) => void;
-  onUpdateActivity?: (activity: StudentActivity) => void; // Nueva prop para actualizar actividad
+  onUpdateActivity?: (activity: StudentActivity) => void;
 }
 
 export const StudentPortal: React.FC<StudentPortalProps> = ({ 
@@ -17,9 +17,71 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
   onLogout, 
   onRespondPickup, 
   onSubmitSurvey,
-  onUpdateActivity // Recibimos la función
+  onUpdateActivity 
 }) => {
   const [activeTab, setActiveTab] = useState('home');
+  
+  // Referencia para evitar notificaciones duplicadas si el componente se renderiza dos veces
+  // Almacenamos el estado anterior para compararlo
+  const lastStatusRef = useRef(student.pickupAuthorization);
+
+  // 1. SOLICITAR PERMISOS DE NOTIFICACIÓN AL MONTAR EL COMPONENTE
+  useEffect(() => {
+    if ('Notification' in window && Notification.permission !== 'granted') {
+      Notification.requestPermission();
+    }
+  }, []);
+
+  // 2. DETECTAR EL CAMBIO DE ESTADO A 'PENDING' Y LANZAR ALERTAS
+  useEffect(() => {
+    // Si el estado actual es PENDING y el anterior NO lo era, significa que acaba de llegar la solicitud
+    if (student.pickupAuthorization === PickupAuthStatus.PENDING && lastStatusRef.current !== PickupAuthStatus.PENDING) {
+      triggerAlert();
+    }
+    // Actualizamos la referencia para la próxima comparación
+    lastStatusRef.current = student.pickupAuthorization;
+  }, [student.pickupAuthorization]);
+
+  // 3. FUNCIÓN PARA LANZAR NOTIFICACIÓN Y VIBRACIÓN
+  const triggerAlert = () => {
+    // A. Vibración (Patrón: 500ms vibra, 200ms pausa, 500ms vibra, 200ms pausa, 1000ms vibra)
+    // Nota: Esto funciona en la mayoría de Androids. En iOS Safari no tiene soporte.
+    if (typeof navigator.vibrate === 'function') {
+      navigator.vibrate([500, 200, 500, 200, 1000]);
+    }
+
+    // B. Notificación del Sistema
+    if ('Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification("¡ATENCIÓN COAR!", {
+          body: `Tu apoderado ${MOCK_USER.name} ha solicitado tu salida.`,
+          icon: '/vite.svg', // Asegúrate de tener un icono válido aquí o usa student.avatarUrl
+          tag: 'pickup-request', // Evita spam de notificaciones apiladas
+          requireInteraction: true // Mantiene la notificación hasta que el usuario la cierre (en navegadores soportados)
+        });
+      } catch (e) {
+        console.error("Error al lanzar notificación", e);
+      }
+    }
+  };
+
+  // --- HELPER PARA BOTONES DE ACTIVIDAD ---
+  const renderActivityButton = (type: StudentActivity, label: string, icon: any, colorClass: string, activeBgClass: string) => {
+    const isActive = student.currentActivity === type;
+    return (
+      <button
+        onClick={() => onUpdateActivity && onUpdateActivity(type)}
+        className={`flex-1 p-4 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-2 ${
+          isActive 
+            ? `${activeBgClass} border-transparent text-white shadow-lg scale-105 ring-2 ring-offset-2 ring-blue-100` 
+            : `bg-white border-gray-100 text-gray-400 hover:border-gray-200 hover:bg-gray-50`
+        }`}
+      >
+        {React.createElement(icon, { className: `w-6 h-6 ${isActive ? 'text-white' : colorClass}` })}
+        <span className="text-[10px] font-bold uppercase tracking-wide">{label}</span>
+      </button>
+    );
+  };
 
   // --- 1. ESTADO DE BLOQUEO: SOLICITUD PENDIENTE ---
   if (student.pickupAuthorization === PickupAuthStatus.PENDING) {
@@ -28,7 +90,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         <div className="bg-white w-full max-w-lg rounded-3xl shadow-2xl overflow-hidden animate-in zoom-in duration-300">
            <div className="bg-blue-600 p-8 text-center relative overflow-hidden">
               <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
-              <h2 className="text-white font-bold text-lg uppercase tracking-widest animate-pulse mb-4 relative z-10">Solicitud de Salida</h2>
+              
+              {/* ALERTA VISUAL ANIMADA */}
+              <h2 className="text-white font-bold text-lg uppercase tracking-widest animate-pulse mb-4 relative z-10 flex items-center justify-center gap-2">
+                 <Icons.Bell className="w-5 h-5 animate-bounce" /> SOLICITUD DE SALIDA
+              </h2>
+
               <div className="w-24 h-24 rounded-full border-4 border-white shadow-xl mx-auto mb-3 relative z-10">
                  <img src={MOCK_USER.avatarUrl} alt="Parent" className="w-full h-full object-cover" />
               </div>
@@ -108,24 +175,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
       </div>
     );
   }
-
-  // --- HELPER PARA BOTONES DE ACTIVIDAD ---
-  const renderActivityButton = (type: StudentActivity, label: string, icon: any, colorClass: string, activeBgClass: string) => {
-    const isActive = student.currentActivity === type;
-    return (
-      <button
-        onClick={() => onUpdateActivity && onUpdateActivity(type)}
-        className={`flex-1 p-4 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-2 ${
-          isActive 
-            ? `${activeBgClass} border-transparent text-white shadow-lg scale-105 ring-2 ring-offset-2 ring-blue-100` 
-            : `bg-white border-gray-100 text-gray-400 hover:border-gray-200 hover:bg-gray-50`
-        }`}
-      >
-        {React.createElement(icon, { className: `w-6 h-6 ${isActive ? 'text-white' : colorClass}` })}
-        <span className="text-[10px] font-bold uppercase tracking-wide">{label}</span>
-      </button>
-    );
-  };
 
   // --- 3. DASHBOARD PRINCIPAL ---
   return (
@@ -211,8 +260,8 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               </p>
            </div>
 
-           {/* Status Badge */}
-           <div className="flex items-center gap-3">
+           {/* Status Badge & Notification Toggle */}
+           <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3">
               <span className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 rounded-full text-xs font-bold border border-green-100">
                  <span className="relative flex h-2 w-2">
                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
@@ -220,6 +269,16 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                  </span>
                  Sistema En Línea
               </span>
+              
+              {/* Botón manual para activar notificaciones si el navegador lo requiere */}
+              {Notification.permission !== 'granted' && (
+                 <button 
+                   onClick={() => Notification.requestPermission()}
+                   className="text-[10px] text-blue-500 font-bold hover:underline"
+                 >
+                   🔔 Activar Alertas
+                 </button>
+              )}
            </div>
         </header>
 
@@ -256,7 +315,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       </div>
                   </div>
 
-                  {/* === SECCIÓN DE ACTIVIDAD EN TIEMPO REAL (NUEVO) === */}
+                  {/* === SECCIÓN DE ACTIVIDAD EN TIEMPO REAL === */}
                   <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm animate-in fade-in slide-in-from-bottom-4 duration-500">
                      <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
                         <Icons.Refresh className={`w-4 h-4 ${student.currentActivity ? 'text-green-500' : 'text-gray-400'}`} />

@@ -21,46 +21,43 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState('home');
   
-  // Referencia para evitar notificaciones duplicadas si el componente se renderiza dos veces
-  // Almacenamos el estado anterior para compararlo
+  // Referencia para evitar notificaciones duplicadas
   const lastStatusRef = useRef(student.pickupAuthorization);
 
-  // 1. SOLICITAR PERMISOS DE NOTIFICACIÓN AL MONTAR EL COMPONENTE
+  // 1. SOLICITAR PERMISOS DE NOTIFICACIÓN
   useEffect(() => {
     if ('Notification' in window && Notification.permission !== 'granted') {
       Notification.requestPermission();
     }
   }, []);
 
-  // 2. DETECTAR EL CAMBIO DE ESTADO A 'PENDING' Y LANZAR ALERTAS
+  // 2. DETECTAR EL CAMBIO DE ESTADO A 'PENDING'
   useEffect(() => {
-    // Si el estado actual es PENDING y el anterior NO lo era, significa que acaba de llegar la solicitud
     if (student.pickupAuthorization === PickupAuthStatus.PENDING && lastStatusRef.current !== PickupAuthStatus.PENDING) {
       triggerAlert();
     }
-    // Actualizamos la referencia para la próxima comparación
     lastStatusRef.current = student.pickupAuthorization;
   }, [student.pickupAuthorization]);
 
-  // 3. FUNCIÓN PARA LANZAR NOTIFICACIÓN Y VIBRACIÓN
+  // 3. FUNCIÓN DE ALERTA (Vibración + Notificación)
   const triggerAlert = () => {
-    // A. Vibración (Patrón: 500ms vibra, 200ms pausa, 500ms vibra, 200ms pausa, 1000ms vibra)
-    // Nota: Esto funciona en la mayoría de Androids. En iOS Safari no tiene soporte.
+    // A. Vibración
     if (typeof navigator.vibrate === 'function') {
       navigator.vibrate([500, 200, 500, 200, 1000]);
     }
 
-    // B. Notificación del Sistema
+    // B. Notificación Push
     if ('Notification' in window && Notification.permission === 'granted') {
       try {
         new Notification("¡ATENCIÓN COAR!", {
-          body: `Tu apoderado ${MOCK_USER.name} ha solicitado tu salida.`,
-          icon: '/vite.svg', // Asegúrate de tener un icono válido aquí o usa student.avatarUrl
-          tag: 'pickup-request', // Evita spam de notificaciones apiladas
-          requireInteraction: true // Mantiene la notificación hasta que el usuario la cierre (en navegadores soportados)
+          body: `Tu apoderado ha solicitado tu salida.`,
+          // Usamos el icono de la app si está disponible, o un genérico
+          icon: '/vite.svg', 
+          tag: 'pickup-request',
+          requireInteraction: true
         });
       } catch (e) {
-        console.error("Error al lanzar notificación", e);
+        console.error("Error notificación:", e);
       }
     }
   };
@@ -83,7 +80,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     );
   };
 
-  // --- 1. ESTADO DE BLOQUEO: SOLICITUD PENDIENTE ---
+  // --- VISTA 1: BLOQUEO POR SOLICITUD PENDIENTE ---
   if (student.pickupAuthorization === PickupAuthStatus.PENDING) {
     return (
       <div className="min-h-screen bg-gray-900/95 backdrop-blur-sm flex items-center justify-center p-4">
@@ -91,16 +88,16 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
            <div className="bg-blue-600 p-8 text-center relative overflow-hidden">
               <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
               
-              {/* ALERTA VISUAL ANIMADA */}
+              {/* CORREGIDO: Icons.Notification en lugar de Icons.Bell */}
               <h2 className="text-white font-bold text-lg uppercase tracking-widest animate-pulse mb-4 relative z-10 flex items-center justify-center gap-2">
-                 <Icons.Bell className="w-5 h-5 animate-bounce" /> SOLICITUD DE SALIDA
+                 <Icons.Notification className="w-5 h-5 animate-bounce" /> SOLICITUD DE SALIDA
               </h2>
 
               <div className="w-24 h-24 rounded-full border-4 border-white shadow-xl mx-auto mb-3 relative z-10">
-                 <img src={MOCK_USER.avatarUrl} alt="Parent" className="w-full h-full object-cover" />
+                 <img src={MOCK_USER?.avatarUrl || "https://ui-avatars.com/api/?name=Padre"} alt="Parent" className="w-full h-full object-cover" />
               </div>
-              <p className="text-white font-bold text-xl relative z-10">{MOCK_USER.name}</p>
-              <p className="text-blue-200 text-sm relative z-10">Tu apoderado está en portería</p>
+              <p className="text-white font-bold text-xl relative z-10">{MOCK_USER?.name || "Tu Apoderado"}</p>
+              <p className="text-blue-200 text-sm relative z-10">Está solicitando tu salida</p>
            </div>
            
            <div className="p-8 space-y-6">
@@ -122,7 +119,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     );
   }
 
-  // --- 2. ESTADO DE BLOQUEO: PASE DE SALIDA (TICKET) ---
+  // --- VISTA 2: PASE DE SALIDA (TICKET) ---
   if (student.pickupAuthorization === PickupAuthStatus.APPROVED) {
     return (
       <div className="min-h-screen bg-green-600 flex items-center justify-center p-4 relative">
@@ -136,11 +133,9 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
            </div>
 
            <div className="p-8 flex flex-col items-center bg-gray-50">
-              {/* Ticket Visual */}
               <div className="w-full bg-white rounded-2xl shadow-sm border border-gray-200 relative overflow-hidden">
                  <div className="h-4 bg-green-500 w-full"></div>
                  <div className="p-6 text-center border-b border-dashed border-gray-200 relative">
-                    {/* Muescas del ticket */}
                     <div className="absolute -left-3 bottom-[-12px] w-6 h-6 bg-gray-50 rounded-full"></div>
                     <div className="absolute -right-3 bottom-[-12px] w-6 h-6 bg-gray-50 rounded-full"></div>
                     
@@ -151,7 +146,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                  <div className="p-8 flex justify-center bg-white">
                     <div className="w-48 h-48 bg-gray-900 rounded-lg p-2 flex items-center justify-center">
                         <div className="w-full h-full border-2 border-white bg-white flex items-center justify-center">
-                             {/* QR Simulado */}
                              <div className="grid grid-cols-6 gap-1 opacity-80 w-32 h-32">
                                 {[...Array(36)].map((_, i) => (
                                    <div key={i} className={`w-full h-full rounded-sm ${Math.random() > 0.4 ? 'bg-black' : 'bg-transparent'}`}></div>
@@ -176,13 +170,14 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     );
   }
 
-  // --- 3. DASHBOARD PRINCIPAL ---
+  // --- VISTA 3: DASHBOARD PRINCIPAL ---
+  const isSurveyCompleted = student.weeklySurvey?.completed;
+
   return (
     <div className="flex h-screen w-full bg-[#F3F5F7] overflow-hidden">
       
-      {/* === SIDEBAR (SOLO PC) === */}
+      {/* SIDEBAR (SOLO PC) */}
       <aside className="hidden lg:flex w-72 bg-white border-r border-gray-200 flex-col z-20 shadow-sm">
-        {/* Sidebar Header */}
         <div className="p-6 flex items-center gap-3">
           <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
             <Icons.Shield className="w-6 h-6" />
@@ -193,7 +188,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
           </div>
         </div>
 
-        {/* Navigation */}
         <nav className="flex-1 px-4 py-6 space-y-2">
            <p className="px-4 text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Menú Principal</p>
            
@@ -222,7 +216,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
            </button>
         </nav>
 
-        {/* Sidebar Footer */}
         <div className="p-4 border-t border-gray-100">
            <div className="bg-gray-50 rounded-xl p-3 flex items-center gap-3 mb-3">
               <img src={student.avatarUrl} alt="User" className="w-10 h-10 rounded-full border border-gray-200" />
@@ -237,12 +230,11 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         </div>
       </aside>
 
-      {/* === ÁREA PRINCIPAL === */}
+      {/* ÁREA PRINCIPAL */}
       <main className="flex-1 flex flex-col min-w-0 h-full relative">
         
-        {/* HEADER (Adaptable) */}
+        {/* HEADER */}
         <header className="bg-white border-b border-gray-200 h-16 lg:h-20 px-4 lg:px-8 flex items-center justify-between z-10 flex-shrink-0">
-           {/* Mobile Logo */}
            <div className="lg:hidden flex items-center gap-2">
               <div className="bg-blue-600 p-1.5 rounded-lg text-white">
                 <Icons.Shield className="w-4 h-4" />
@@ -250,18 +242,16 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               <span className="font-bold text-gray-900">COAR</span>
            </div>
 
-           {/* Desktop Title */}
            <div className="hidden lg:block">
               <h2 className="text-xl font-bold text-gray-900">
-                {activeTab === 'home' ? 'Hola, ' + student.name.split(' ')[0] : 'Encuesta de Salida'}
+                {activeTab === 'home' ? `Hola, ${student.name.split(' ')[0]}` : 'Encuesta de Salida'}
               </h2>
               <p className="text-xs text-gray-500">
                 {activeTab === 'home' ? 'Bienvenido a tu panel estudiantil.' : 'Completa tus datos para el fin de semana.'}
               </p>
            </div>
 
-           {/* Status Badge & Notification Toggle */}
-           <div className="flex flex-col sm:flex-row items-end sm:items-center gap-3">
+           <div className="flex items-center gap-3">
               <span className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 rounded-full text-xs font-bold border border-green-100">
                  <span className="relative flex h-2 w-2">
                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
@@ -270,7 +260,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                  Sistema En Línea
               </span>
               
-              {/* Botón manual para activar notificaciones si el navegador lo requiere */}
               {Notification.permission !== 'granted' && (
                  <button 
                    onClick={() => Notification.requestPermission()}
@@ -282,13 +271,13 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
            </div>
         </header>
 
-        {/* CONTENIDO SCROLLABLE */}
+        {/* CONTENIDO */}
         <div className="flex-1 overflow-y-auto p-4 lg:p-8 pb-24 lg:pb-8">
            <div className="max-w-5xl mx-auto">
               
               {activeTab === 'home' && (
                 <div className="space-y-6">
-                  {/* Hero Card - ID Digital */}
+                  {/* Credencial Digital */}
                   <div className="w-full bg-gradient-to-r from-blue-700 to-indigo-800 rounded-3xl p-6 lg:p-10 text-white shadow-xl relative overflow-hidden">
                       <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
                       
@@ -307,7 +296,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                             </div>
                          </div>
                          
-                         {/* Código de Vinculación */}
                          <div className="bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/20 min-w-[160px] text-center">
                             <p className="text-[10px] text-blue-200 uppercase font-bold mb-1">Código Familiar</p>
                             <p className="text-2xl font-mono font-bold tracking-widest">{student.linkCode}</p>
@@ -315,7 +303,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       </div>
                   </div>
 
-                  {/* === SECCIÓN DE ACTIVIDAD EN TIEMPO REAL === */}
+                  {/* Actividad en Tiempo Real */}
                   <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm animate-in fade-in slide-in-from-bottom-4 duration-500">
                      <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
                         <Icons.Refresh className={`w-4 h-4 ${student.currentActivity ? 'text-green-500' : 'text-gray-400'}`} />
@@ -328,29 +316,29 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                      </div>
                   </div>
 
-                  {/* Grid de Widgets */}
+                  {/* Widgets */}
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                      
-                     {/* Widget 1: Estado de Encuesta */}
-                     <div className={`col-span-1 rounded-3xl p-6 border transition-all ${!student.weeklySurvey.completed ? 'bg-purple-600 text-white border-purple-500 shadow-lg shadow-purple-200' : 'bg-white border-gray-100 shadow-sm'}`}>
+                     {/* Encuesta */}
+                     <div className={`col-span-1 rounded-3xl p-6 border transition-all ${!isSurveyCompleted ? 'bg-purple-600 text-white border-purple-500 shadow-lg shadow-purple-200' : 'bg-white border-gray-100 shadow-sm'}`}>
                         <div className="flex justify-between items-start mb-4">
-                           <div className={`p-3 rounded-2xl ${!student.weeklySurvey.completed ? 'bg-white/20' : 'bg-green-50 text-green-600'}`}>
-                              {!student.weeklySurvey.completed ? <Icons.Survey className="w-6 h-6" /> : <Icons.Check className="w-6 h-6" />}
+                           <div className={`p-3 rounded-2xl ${!isSurveyCompleted ? 'bg-white/20' : 'bg-green-50 text-green-600'}`}>
+                              {!isSurveyCompleted ? <Icons.Survey className="w-6 h-6" /> : <Icons.Check className="w-6 h-6" />}
                            </div>
-                           {!student.weeklySurvey.completed && <span className="px-2 py-1 bg-white/20 rounded text-[10px] font-bold uppercase">Pendiente</span>}
+                           {!isSurveyCompleted && <span className="px-2 py-1 bg-white/20 rounded text-[10px] font-bold uppercase">Pendiente</span>}
                         </div>
-                        <h3 className="text-lg font-bold mb-1">{!student.weeklySurvey.completed ? 'Encuesta Semanal' : 'Todo Listo'}</h3>
-                        <p className={`text-sm ${!student.weeklySurvey.completed ? 'text-purple-100' : 'text-gray-500'}`}>
-                           {!student.weeklySurvey.completed ? 'Debes completarla para autorizar tu salida.' : 'Has completado el registro de esta semana.'}
+                        <h3 className="text-lg font-bold mb-1">{!isSurveyCompleted ? 'Encuesta Semanal' : 'Todo Listo'}</h3>
+                        <p className={`text-sm ${!isSurveyCompleted ? 'text-purple-100' : 'text-gray-500'}`}>
+                           {!isSurveyCompleted ? 'Debes completarla para autorizar tu salida.' : 'Has completado el registro de esta semana.'}
                         </p>
-                        {!student.weeklySurvey.completed && (
+                        {!isSurveyCompleted && (
                            <button onClick={() => setActiveTab('survey')} className="mt-4 w-full py-2 bg-white text-purple-600 rounded-xl font-bold text-sm shadow-sm hover:bg-gray-50 transition-colors">
                               Completar Ahora
                            </button>
                         )}
                      </div>
 
-                     {/* Widget 2: Menú */}
+                     {/* Menú */}
                      <div className="col-span-1 bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
                         <div className="flex justify-between items-center mb-4">
                            <h3 className="font-bold text-gray-900 flex items-center gap-2">
@@ -365,7 +353,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                         </div>
                      </div>
 
-                     {/* Widget 3: Info */}
+                     {/* Info */}
                      <div className="col-span-1 bg-white rounded-3xl p-6 border border-gray-100 shadow-sm flex flex-col justify-center">
                         <div className="flex items-center gap-4 mb-4">
                            <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center text-blue-600">
@@ -400,7 +388,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
            </div>
         </div>
 
-        {/* === BOTTOM NAVIGATION (SOLO MÓVIL) === */}
+        {/* BOTTOM NAV (MÓVIL) */}
         <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-6 py-3 pb-6 flex justify-around items-center z-30 shadow-[0_-5px_20px_rgba(0,0,0,0.05)]">
            <button 
              onClick={() => setActiveTab('home')}

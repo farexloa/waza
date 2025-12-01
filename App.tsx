@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { AIPanel } from './components/AIPanel';
 import { Icons } from './components/Icons';
@@ -59,6 +59,52 @@ const App: React.FC = () => {
   const [phoneCode, setPhoneCode] = useState('');
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null);
 
+  // --- 1. EFECTO PARA RECUPERAR SESIÓN AL CARGAR (MANTENER SESIÓN) ---
+  useEffect(() => {
+    const savedSession = localStorage.getItem('coar_session');
+    if (savedSession) {
+      try {
+        const session = JSON.parse(savedSession);
+        
+        // Restauramos la lista de estudiantes (para mantener el orden del hijo vinculado)
+        if (session.students && session.students.length > 0) {
+          setStudents(session.students);
+        }
+        
+        // Restauramos al usuario
+        if (session.role === 'PARENT') {
+           setCurrentUserParent(session.userData);
+           setUserRole('PARENT');
+        } else if (session.role === 'STUDENT') {
+           setCurrentStudentId(session.userData.id);
+           setUserRole('STUDENT');
+        }
+      } catch (e) {
+        console.error("Error al restaurar sesión", e);
+        localStorage.removeItem('coar_session');
+      }
+    }
+  }, []);
+
+  // --- 2. FUNCIONES AUXILIARES DE SESIÓN ---
+  const saveSession = (role: UserRole, userData: any, currentStudents: Student[]) => {
+    localStorage.setItem('coar_session', JSON.stringify({
+      role,
+      userData,
+      students: currentStudents
+    }));
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('coar_session');
+    setUserRole(null);
+    setCurrentUserParent(null);
+    setCurrentStudentId('');
+    setLoginTab('PARENT');
+    // Opcional: Recargar la lista original de estudiantes al salir
+    setStudents(INITIAL_STUDENTS); 
+  };
+
   // --- HANDLERS ---
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -75,28 +121,36 @@ const App: React.FC = () => {
           const doc = querySnapshot.docs[0];
           const parentData = { ...doc.data(), id: doc.id } as Parent; 
           
-          setCurrentUserParent(parentData);
-          setUserRole('PARENT');
-
-          // Si el padre tiene un alumno vinculado, lo traemos y lo ponemos primero
-          if (parentData.linkedStudentId) { //
-             const studentRef = query(collection(db, "students"), where("__name__", "==", parentData.linkedStudentId));
-             const studentSnap = await getDocs(studentRef);
-             if (!studentSnap.empty) {
-                const sDoc = studentSnap.docs[0];
-                const linkedStudent = { ...sDoc.data(), id: sDoc.id } as Student;
-                setStudents(prev => {
-                   const others = prev.filter(s => s.id !== linkedStudent.id);
-                   return [linkedStudent, ...others];
-                });
+          // LÓGICA DE VINCULACIÓN AL LOGIN
+          let updatedStudents = [...students];
+          if (parentData.familyCode) { // O linkedStudentId si lo guardaste así
+             // Intentamos buscar si hay un alumno vinculado en la base de datos con ese código
+             // O si ya guardamos el ID del alumno en el padre (mejor)
+             if ((parentData as any).linkedStudentId) {
+                const studentId = (parentData as any).linkedStudentId;
+                const studentRef = query(collection(db, "students"), where("__name__", "==", studentId));
+                const studentSnap = await getDocs(studentRef);
+                
+                if (!studentSnap.empty) {
+                   const sDoc = studentSnap.docs[0];
+                   const linkedStudent = { ...sDoc.data(), id: sDoc.id } as Student;
+                   // Ponemos al hijo al inicio
+                   updatedStudents = [linkedStudent, ...students.filter(s => s.id !== linkedStudent.id)];
+                   setStudents(updatedStudents);
+                }
              }
           }
           
+          setCurrentUserParent(parentData);
+          setUserRole('PARENT');
+
+          // Guardar sesión si el checkbox está activo
           if (keepSession) {
-            console.log("Sesión mantenida activada"); 
+            saveSession('PARENT', parentData, updatedStudents);
           }
+
         } else {
-          // Intento por Código de Familia
+          // Intento por Código de Familia (Legacy)
           const qCode = query(collection(db, "parents"), where("familyCode", "==", authInput));
           const codeSnapshot = await getDocs(qCode);
           
@@ -105,6 +159,8 @@ const App: React.FC = () => {
              const parentData = { ...doc.data(), id: doc.id } as Parent;
              setCurrentUserParent(parentData);
              setUserRole('PARENT');
+             
+             if (keepSession) saveSession('PARENT', parentData, students);
           } else {
              setAuthError('Usuario no encontrado. Verifique su DNI.');
           }
@@ -117,11 +173,16 @@ const App: React.FC = () => {
 
         if (!querySnapshot.empty) {
           const doc = querySnapshot.docs[0];
-          const studentData = { ...doc.data(), id: doc.id };
+          const studentData = { ...doc.data(), id: doc.id } as Student;
           
-          setStudents([studentData as any]); 
+          const newStudentList = [studentData];
+          setStudents(newStudentList); 
           setCurrentStudentId(doc.id);
           setUserRole('STUDENT');
+
+          if (keepSession) {
+             saveSession('STUDENT', studentData, newStudentList);
+          }
         } else {
           setAuthError('Estudiante no encontrado. Regístrate primero.');
         }
@@ -146,7 +207,7 @@ const App: React.FC = () => {
     }
 
     try {
-      // 1. Verificar si ya existe el padre por DNI
+      // 1. Verificar si ya existe el padre
       const q = query(collection(db, "parents"), where("dni", "==", parentRegData.dni));
       const querySnapshot = await getDocs(q);
 
@@ -156,31 +217,25 @@ const App: React.FC = () => {
         return;
       }
 
-      // 2. Verificar vinculación por Código Familiar (CORREGIDO: MAYÚSCULAS Y TRIM)
+      // 2. Verificar vinculación por Código Familiar (Con corrección de mayúsculas)
       let linkedStudentData: Student | null = null;
-      
       if (parentRegData.familyCode) {
-         // Convertimos a mayúsculas para evitar errores si el usuario escribe en minúsculas
-         const codeToSearch = parentRegData.familyCode.trim().toUpperCase(); //
-
-         const qStudent = query(collection(db, "students"), where("linkCode", "==", codeToSearch));
+         const cleanCode = parentRegData.familyCode.trim().toUpperCase();
+         const qStudent = query(collection(db, "students"), where("linkCode", "==", cleanCode));
          const studentSnapshot = await getDocs(qStudent);
          
          if (!studentSnapshot.empty) {
             const sDoc = studentSnapshot.docs[0];
             linkedStudentData = { ...sDoc.data(), id: sDoc.id } as Student;
          } else {
-            // Error explícito si el código no existe
-            setAuthError('El código familiar no existe. Verifíquelo con su hijo.');
+            setAuthError('El código familiar no existe. Verifíquelo.');
             setIsLoggingIn(false);
             return;
          }
       }
 
-      // 3. Crear datos y GUARDAR EN FIREBASE
+      // 3. Crear datos y GUARDAR
       const newCode = `FAM-${Math.floor(1000 + Math.random() * 9000)}`;
-      
-      // Construimos el objeto padre asegurando que linkedStudentId esté presente si se encontró
       const newParent = {
         name: parentRegData.name,
         dni: parentRegData.dni,
@@ -189,24 +244,26 @@ const App: React.FC = () => {
         familyCode: newCode,
         avatarUrl: `https://ui-avatars.com/api/?name=${encodeURIComponent(parentRegData.name)}&background=random`,
         role: 'Apoderado',
-        linkedStudentId: linkedStudentData ? linkedStudentData.id : null, // Guardado correcto en DB
+        linkedStudentId: linkedStudentData ? linkedStudentData.id : null,
         createdAt: new Date().toISOString()
       };
 
       await addDoc(collection(db, "parents"), newParent);
 
-      // 4. Actualizar estado local para mostrar al hijo primero
+      // 4. Actualizar estado local (poner hijo primero)
+      let updatedStudents = [...students];
       if (linkedStudentData) {
-         setStudents(prev => {
-            // Eliminamos duplicados y ponemos al vinculado al inicio
-            const others = prev.filter(s => s.id !== linkedStudentData!.id);
-            return [linkedStudentData!, ...others];
-         });
+         updatedStudents = [linkedStudentData, ...students.filter(s => s.id !== linkedStudentData!.id)];
+         setStudents(updatedStudents);
       }
 
-      // 5. Finalizar registro e iniciar sesión
+      // 5. Entrar automáticamente y GUARDAR SESIÓN
       setCurrentUserParent(newParent as any);
       setUserRole('PARENT');
+      
+      // Guardamos la sesión automáticamente al registrarse para mejor UX
+      saveSession('PARENT', newParent, updatedStudents);
+
       setRegisterSuccess(true);
       
       setTimeout(() => {
@@ -214,15 +271,13 @@ const App: React.FC = () => {
          setRegisterSuccess(false);
          setIsRegistering(false);
          if (linkedStudentData) {
-            alert(`¡Cuenta vinculada con éxito a ${linkedStudentData.name}!\nBienvenido.`);
-         } else {
-            alert(`¡Cuenta creada!\nUsa tu DNI ${parentRegData.dni} para volver a entrar.`);
+            alert(`¡Cuenta creada y vinculada con ${linkedStudentData.name}!`);
          }
       }, 1500);
 
     } catch (error) {
       console.error("Error Registro:", error);
-      setAuthError("No se pudo conectar con la base de datos.");
+      setAuthError("No se pudo guardar en la base de datos.");
       setIsLoggingIn(false);
     }
   };
@@ -275,10 +330,15 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
       const docRef = await addDoc(collection(db, "students"), newStudent);
 
       const studentWithId = { ...newStudent, id: docRef.id };
-      setStudents([studentWithId as any]);
+      const newStudentList = [studentWithId as any];
+      
+      setStudents(newStudentList);
       setCurrentStudentId(docRef.id);
       setUserRole('STUDENT');
       
+      // Guardar sesión de estudiante también
+      saveSession('STUDENT', studentWithId, newStudentList);
+
       setRegisterSuccess(true);
       setTimeout(() => {
         setIsLoggingIn(false);
@@ -357,14 +417,14 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
 
                    {/* Checkbox "Mantener sesión" */}
                    <div className="mt-4 flex items-center justify-center">
-                      <label className="flex items-center cursor-pointer">
+                      <label className="flex items-center cursor-pointer select-none">
                         <input 
                           type="checkbox"
                           checked={keepSession}
                           onChange={(e) => setKeepSession(e.target.checked)}
                           className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
                         />
-                        <span className={`ml-2 text-xs font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+                        <span className={`ml-2 text-xs font-medium ${isDarkMode ? 'text-gray-300' : 'text-gray-500'}`}>
                           Mantener sesión iniciada
                         </span>
                       </label>
@@ -406,7 +466,7 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
                {loginTab === 'PARENT' ? (
                  /* Parent Reg Form */
                  <form onSubmit={handleRegisterParent} className="space-y-4">
-                   {/* Campo para CÓDIGO FAMILIAR (Vinculación) */}
+                   {/* CÓDIGO FAMILIAR AL INICIO */}
                    <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl">
                       <label className="text-[10px] font-bold text-blue-800 ml-1 flex items-center gap-1">
                         <Icons.Shield className="w-3 h-3"/> CÓDIGO FAMILIAR (DEL ESTUDIANTE)
@@ -562,7 +622,7 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
     return (
       <StudentPortal 
         student={myData} 
-        onLogout={() => setUserRole(null)}
+        onLogout={handleLogout}
         onRespondPickup={handleStudentResponse}
         onSubmitSurvey={handleSurveySubmit}
       />
@@ -614,7 +674,7 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
           </div>
 
           <div className="flex items-center space-x-4">
-             <button onClick={() => setUserRole(null)} className="flex items-center space-x-3 pl-4 border-l border-gray-200 hover:opacity-70 transition-opacity">
+             <button onClick={handleLogout} className="flex items-center space-x-3 pl-4 border-l border-gray-200 hover:opacity-70 transition-opacity">
                <img src={currentUserParent?.avatarUrl || ''} alt="Profile" className="w-9 h-9 rounded-full object-cover border-2 border-white shadow-sm" />
                <div className="hidden sm:block text-left">
                  <p className={`text-sm font-bold leading-none ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>{currentUserParent?.name}</p>
@@ -664,7 +724,7 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
                 </div>
 
                 <button 
-                  onClick={() => setUserRole(null)}
+                  onClick={handleLogout}
                   className="w-full py-3 text-red-500 bg-red-50 hover:bg-red-100 rounded-xl font-bold transition-colors"
                 >
                   Cerrar Sesión

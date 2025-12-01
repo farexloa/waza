@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Icons } from './Icons';
-import { Student, PickupAuthStatus, SurveyData } from '../types';
+import { Student, PickupAuthStatus, SurveyData, StudentActivity } from '../types';
 import { MOCK_USER } from '../constants';
 import { SurveyForm } from './SurveyForm';
 
@@ -9,51 +9,44 @@ interface StudentPortalProps {
   onLogout: () => void;
   onRespondPickup: (approved: boolean) => void;
   onSubmitSurvey?: (data: SurveyData) => void;
-  // Prop opcional por compatibilidad, aunque no se use en esta versión simplificada
-  onUpdateActivity?: (activity: any) => void; 
+  onUpdateActivity?: (activity: StudentActivity) => void;
+  requestingParentName?: string; // Prop nueva para el nombre del padre
 }
 
 export const StudentPortal: React.FC<StudentPortalProps> = ({ 
   student, 
   onLogout, 
   onRespondPickup, 
-  onSubmitSurvey 
+  onSubmitSurvey,
+  onUpdateActivity,
+  requestingParentName = "Tu Apoderado"
 }) => {
   const [activeTab, setActiveTab] = useState('home');
-  
-  // Referencia para comparar el estado anterior y detectar cambios
   const lastStatusRef = useRef(student.pickupAuthorization);
 
-  // 1. SOLICITAR PERMISOS DE NOTIFICACIÓN AL INICIAR
   useEffect(() => {
     if ('Notification' in window && Notification.permission !== 'granted') {
       Notification.requestPermission();
     }
   }, []);
 
-  // 2. DETECTAR SOLICITUD DE SALIDA (PENDING) Y ALERTAR
   useEffect(() => {
-    // Si el estado cambia a PENDING y antes no lo estaba
     if (student.pickupAuthorization === PickupAuthStatus.PENDING && lastStatusRef.current !== PickupAuthStatus.PENDING) {
       triggerAlert();
     }
-    // Actualizamos la referencia
     lastStatusRef.current = student.pickupAuthorization;
   }, [student.pickupAuthorization]);
 
-  // FUNCIÓN DE ALERTA (VIBRACIÓN + NOTIFICACIÓN)
   const triggerAlert = () => {
-    // Vibración (Soportado en Android/Chrome)
     if (typeof navigator.vibrate === 'function') {
-      navigator.vibrate([500, 200, 500, 200, 1000]); // Patrón fuerte
+      navigator.vibrate([500, 200, 500, 200, 1000]); 
     }
 
-    // Notificación del Sistema (Funciona fuera de la app)
     if ('Notification' in window && Notification.permission === 'granted') {
       try {
         new Notification("¡SOLICITUD DE SALIDA!", {
-          body: "Tu apoderado ha solicitado tu salida.",
-          icon: '/vite.svg', // Icono genérico o student.avatarUrl si es accesible
+          body: `${requestingParentName} está solicitando tu salida.`, // Usa el nombre real
+          icon: '/vite.svg',
           tag: 'pickup-alert',
           requireInteraction: true
         });
@@ -63,14 +56,29 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     }
   };
 
-  // --- VISTA MODAL DE SOLICITUD PENDIENTE (Pop-up sobre el panel) ---
-  // Si el estado es PENDING, mostramos este modal bloqueante encima de todo.
+  const renderActivityButton = (type: StudentActivity, label: string, icon: any, colorClass: string, activeBgClass: string) => {
+    const isActive = student.currentActivity === type;
+    return (
+      <button
+        onClick={() => onUpdateActivity && onUpdateActivity(type)}
+        className={`flex-1 p-4 rounded-2xl border-2 transition-all flex flex-col items-center justify-center gap-2 ${
+          isActive 
+            ? `${activeBgClass} border-transparent text-white shadow-lg scale-105 ring-2 ring-offset-2 ring-blue-100` 
+            : `bg-white border-gray-100 text-gray-400 hover:border-gray-200 hover:bg-gray-50`
+        }`}
+      >
+        {React.createElement(icon, { className: `w-6 h-6 ${isActive ? 'text-white' : colorClass}` })}
+        <span className="text-[10px] font-bold uppercase tracking-wide">{label}</span>
+      </button>
+    );
+  };
+
+  // --- VISTA MODAL: SOLICITUD PENDIENTE (CON NOMBRE REAL) ---
   if (student.pickupAuthorization === PickupAuthStatus.PENDING) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/90 backdrop-blur-sm animate-in fade-in duration-300">
         <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden scale-100 transform transition-all">
            
-           {/* Cabecera del Modal */}
            <div className="bg-blue-600 p-8 text-center relative overflow-hidden">
               <div className="absolute inset-0 opacity-10 bg-[url('https://www.transparenttextures.com/patterns/cubes.png')]"></div>
               
@@ -81,11 +89,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               <div className="w-24 h-24 rounded-full border-4 border-white shadow-xl mx-auto mb-3 relative z-10">
                  <img src={MOCK_USER.avatarUrl} alt="Parent" className="w-full h-full object-cover" />
               </div>
-              <p className="text-white font-bold text-xl relative z-10">{MOCK_USER.name}</p>
-              <p className="text-blue-200 text-sm relative z-10">Tu padre ha solicitado tu salida</p>
+              
+              {/* AQUÍ SE MUESTRA EL NOMBRE DEL PADRE QUE ENVIASTE DESDE APP.TSX */}
+              <p className="text-white font-bold text-xl relative z-10">{requestingParentName}</p>
+              <p className="text-blue-200 text-sm relative z-10">Está en portería esperándote</p>
            </div>
            
-           {/* Cuerpo del Modal con Opciones */}
            <div className="p-8 space-y-6">
               <div className="text-center">
                  <h3 className="text-xl font-bold text-gray-900">¿Cuál es tu estado?</h3>
@@ -93,7 +102,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               </div>
               
               <div className="grid gap-3">
-                 {/* Opción 1: Estoy Listo -> Aprueba la salida */}
                  <button 
                    onClick={() => onRespondPickup(true)} 
                    className="py-4 bg-green-500 hover:bg-green-600 text-white rounded-xl font-bold shadow-lg shadow-green-200 flex items-center justify-center gap-2 transition-transform active:scale-95"
@@ -101,7 +109,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                    <Icons.Check className="w-5 h-5" /> ESTOY LISTO
                  </button>
                  
-                 {/* Opción 2: En Clases -> Rechaza/Cancela la salida */}
                  <button 
                    onClick={() => onRespondPickup(false)} 
                    className="py-4 bg-white border-2 border-orange-100 text-orange-600 hover:bg-orange-50 rounded-xl font-bold transition-colors flex items-center justify-center gap-2"
@@ -115,7 +122,7 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     );
   }
 
-  // --- VISTA DE TICKET: PASE DE SALIDA (Si fue aprobado) ---
+  // --- VISTA TICKET: PASE DE SALIDA ---
   if (student.pickupAuthorization === PickupAuthStatus.APPROVED) {
     return (
       <div className="min-h-screen bg-green-600 flex items-center justify-center p-4 relative">
@@ -166,11 +173,10 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
     );
   }
 
-  // --- DASHBOARD PRINCIPAL (VISTA NORMAL) ---
+  // --- DASHBOARD PRINCIPAL ---
   return (
     <div className="flex h-screen w-full bg-[#F3F5F7] overflow-hidden">
       
-      {/* SIDEBAR PC */}
       <aside className="hidden lg:flex w-72 bg-white border-r border-gray-200 flex-col z-20 shadow-sm">
         <div className="p-6 flex items-center gap-3">
           <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center text-white shadow-lg shadow-blue-200">
@@ -212,7 +218,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
         </div>
       </aside>
 
-      {/* ÁREA PRINCIPAL */}
       <main className="flex-1 flex flex-col min-w-0 h-full relative">
         <header className="bg-white border-b border-gray-200 h-16 lg:h-20 px-4 lg:px-8 flex items-center justify-between z-10 flex-shrink-0">
            <div className="lg:hidden flex items-center gap-2">
@@ -223,14 +228,12 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
               <h2 className="text-xl font-bold text-gray-900">{activeTab === 'home' ? 'Hola, ' + student.name.split(' ')[0] : 'Encuesta de Salida'}</h2>
               <p className="text-xs text-gray-500">{activeTab === 'home' ? 'Bienvenido a tu panel estudiantil.' : 'Completa tus datos.'}</p>
            </div>
-           
            <div className="flex items-center gap-3">
               <span className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-green-50 text-green-700 rounded-full text-xs font-bold border border-green-100">
                  <span className="relative flex h-2 w-2"><span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span><span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span></span>
                  Sistema En Línea
               </span>
               
-              {/* Botón discreto para activar notificaciones si no están dadas */}
               {Notification.permission !== 'granted' && (
                  <button onClick={() => Notification.requestPermission()} className="text-[10px] text-blue-500 font-bold hover:underline">
                    Activar Notificaciones
@@ -243,7 +246,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
            <div className="max-w-5xl mx-auto">
               {activeTab === 'home' && (
                 <div className="space-y-6">
-                  {/* CREDENCIAL DIGITAL */}
                   <div className="w-full bg-gradient-to-r from-blue-700 to-indigo-800 rounded-3xl p-6 lg:p-10 text-white shadow-xl relative overflow-hidden">
                       <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
                       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative z-10">
@@ -263,9 +265,19 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                       </div>
                   </div>
 
-                  {/* WIDGETS */}
+                  <div className="bg-white rounded-3xl p-6 border border-gray-100 shadow-sm animate-in fade-in slide-in-from-bottom-4 duration-500">
+                     <h3 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2">
+                        <Icons.Refresh className={`w-4 h-4 ${student.currentActivity ? 'text-green-500' : 'text-gray-400'}`} />
+                        ¿Qué estás haciendo en este momento?
+                     </h3>
+                     <div className="flex gap-4">
+                        {renderActivityButton('CLASSES', 'En Clases', Icons.Layers, 'text-blue-500', 'bg-blue-500')}
+                        {renderActivityButton('FREE', 'Libre', Icons.Sun, 'text-green-500', 'bg-green-500')}
+                        {renderActivityButton('EXIT', 'Salida', Icons.Bus, 'text-orange-500', 'bg-orange-500')}
+                     </div>
+                  </div>
+
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                     {/* Widget Encuesta */}
                      <div className={`col-span-1 rounded-3xl p-6 border transition-all ${!student.weeklySurvey.completed ? 'bg-purple-600 text-white border-purple-500 shadow-lg shadow-purple-200' : 'bg-white border-gray-100 shadow-sm'}`}>
                         <div className="flex justify-between items-start mb-4">
                            <div className={`p-3 rounded-2xl ${!student.weeklySurvey.completed ? 'bg-white/20' : 'bg-green-50 text-green-600'}`}>
@@ -282,7 +294,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                         )}
                      </div>
 
-                     {/* Widget Menú */}
                      <div className="col-span-1 bg-white rounded-3xl p-6 border border-gray-100 shadow-sm">
                         <div className="flex justify-between items-center mb-4">
                            <h3 className="font-bold text-gray-900 flex items-center gap-2"><Icons.Menu className="w-5 h-5 text-orange-500" /> Menú</h3>
@@ -295,7 +306,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
                         </div>
                      </div>
 
-                     {/* Widget Ubicación/Info */}
                      <div className="col-span-1 bg-white rounded-3xl p-6 border border-gray-100 shadow-sm flex flex-col justify-center">
                         <div className="flex items-center gap-4 mb-4">
                            <div className="w-10 h-10 bg-blue-50 rounded-full flex items-center justify-center text-blue-600"><Icons.MapPin className="w-5 h-5" /></div>
@@ -319,7 +329,6 @@ export const StudentPortal: React.FC<StudentPortalProps> = ({
            </div>
         </div>
 
-        {/* BOTTOM NAV */}
         <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 px-6 py-3 pb-6 flex justify-around items-center z-30 shadow-[0_-5px_20px_rgba(0,0,0,0.05)]">
            <button onClick={() => setActiveTab('home')} className={`flex flex-col items-center gap-1 p-2 rounded-xl transition-all ${activeTab === 'home' ? 'text-blue-600 scale-105' : 'text-gray-400'}`}>
               <Icons.Dashboard className={`w-6 h-6 ${activeTab === 'home' && 'fill-current opacity-20'}`} /><span className="text-[10px] font-bold">Inicio</span>

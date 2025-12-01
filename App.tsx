@@ -87,6 +87,28 @@ const App: React.FC = () => {
     fetchStudents();
   }, []);
 
+  // 1.1 CARGAR PADRES (Necesario para saber el nombre del padre vinculado)
+  useEffect(() => {
+    const fetchParents = async () => {
+      try {
+        const q = query(collection(db, "parents"));
+        const querySnapshot = await getDocs(q);
+        const fetchedParents: Parent[] = [];
+        querySnapshot.forEach((doc) => {
+          fetchedParents.push({ ...doc.data(), id: doc.id } as Parent);
+        });
+        // Fusionamos con los iniciales o reemplazamos según prefieras. 
+        // Aquí reemplazamos si hay datos, sino mantenemos los mocks por si acaso.
+        if (fetchedParents.length > 0) {
+            setParents(fetchedParents);
+        }
+      } catch (error) {
+        console.error("Error fetching parents:", error);
+      }
+    };
+    fetchParents();
+  }, []);
+
   // 2. RECUPERAR SESIÓN AL CARGAR
   useEffect(() => {
     const savedSession = localStorage.getItem('coar_session');
@@ -108,11 +130,10 @@ const App: React.FC = () => {
     }
   }, []);
 
-  // 3. ESCUCHAR CAMBIOS EN TIEMPO REAL (LÓGICA CORE DE SINCRONIZACIÓN)
+  // 3. ESCUCHAR CAMBIOS EN TIEMPO REAL
   useEffect(() => {
     let unsubscribeLinked: () => void;
 
-    // Si soy un padre y tengo un hijo vinculado, escucho sus cambios (respuestas)
     if (userRole === 'PARENT' && currentUserParent && (currentUserParent as any).linkedStudentId) {
       const studentId = (currentUserParent as any).linkedStudentId;
       const studentRef = doc(db, "students", studentId);
@@ -185,7 +206,7 @@ const App: React.FC = () => {
     setVisibleCount(8);
   };
 
-  // --- HANDLER: ACTUALIZAR ACTIVIDAD ESTUDIANTE (PORTAL HIJO) ---
+  // --- HANDLER: ACTUALIZAR ACTIVIDAD ESTUDIANTE ---
   const handleUpdateActivity = async (activity: StudentActivity) => {
     const updatedStudents = students.map(s => 
        s.id === currentStudentId ? { ...s, currentActivity: activity } : s
@@ -579,20 +600,24 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
     );
   }
 
-  // --- STUDENT PORTAL VIEW (LÓGICA CONECTADA A FIREBASE) ---
+  // --- STUDENT PORTAL VIEW ---
   if (userRole === 'STUDENT') {
     const myData = students.find(s => s.id === currentStudentId);
     if (!myData) { setUserRole(null); return null; }
 
-    // --- AQUÍ ESTÁ EL CAMBIO CLAVE ---
-    // Esta función ahora escribe en Firebase para que el padre lo vea en tiempo real
+    // Encontrar al padre vinculado para pasar su nombre
+    // Se busca en la lista de padres cargada aquel cuyo linkedStudentId sea el ID de este alumno
+    const linkedParent = parents.find(p => (p as any).linkedStudentId === myData.id);
+    const parentName = linkedParent ? linkedParent.name : "Tu Apoderado";
+
+    // --- MANEJAR RESPUESTA DEL ESTUDIANTE (CON ACTUALIZACIÓN DE FIREBASE) ---
     const handleStudentResponse = async (approved: boolean) => {
        const newStatus = approved ? PickupAuthStatus.APPROVED : PickupAuthStatus.REJECTED;
        
        // 1. Actualización optimista
        setStudents(prev => prev.map(s => s.id === currentStudentId ? { ...s, pickupAuthorization: newStatus } : s));
 
-       // 2. Actualización en Firebase (Dispara la actualización en la pantalla del padre)
+       // 2. Actualización en Firebase
        try {
          const studentRef = doc(db, "students", currentStudentId);
          await updateDoc(studentRef, { 
@@ -616,13 +641,13 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
         onRespondPickup={handleStudentResponse}
         onSubmitSurvey={handleSurveySubmit}
         onUpdateActivity={handleUpdateActivity}
+        requestingParentName={parentName} // Pasamos el nombre real
       />
     );
   }
 
   // --- PARENT DASHBOARD VIEW ---
 
-  // Connect Phone Handler
   const handleConnectPhone = (e: React.FormEvent) => {
     e.preventDefault();
     const matchedStudent = students.find(s => s.linkCode === phoneCode.trim().toUpperCase());
@@ -636,10 +661,8 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
   };
 
   const handleRequestPickup = async (studentId: string) => {
-    // 1. Actualización optimista
     setStudents(prev => prev.map(s => s.id === studentId ? { ...s, pickupAuthorization: PickupAuthStatus.PENDING } : s));
     
-    // 2. Actualización Real en Firebase
     try {
       const studentRef = doc(db, "students", studentId);
       await updateDoc(studentRef, { 
@@ -665,7 +688,6 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
 
       <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
         
-        {/* Header */}
         <header className={`border-b px-6 py-3 flex items-center justify-between shadow-sm z-20 ${isDarkMode ? 'bg-gray-800 border-gray-700' : 'bg-white border-gray-100'}`}>
           <div className="flex items-center flex-1">
             <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`mr-4 lg:hidden ${isDarkMode ? 'text-white' : 'text-gray-500'}`}>
@@ -687,7 +709,6 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
           </div>
         </header>
 
-        {/* Content Area */}
         <div className="flex-1 overflow-auto p-4 lg:p-6">
           {activeTab === 'settings' ? (
              <div className="max-w-2xl mx-auto space-y-6">
@@ -703,7 +724,6 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
           ) : (
             <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-12 gap-6">
               
-              {/* Left Column: Students & Schedule */}
               <div className="lg:col-span-7 space-y-6">
                 
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -715,7 +735,6 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
                   </div>
                 </div>
 
-                {/* STUDENT CARDS */}
                 <div className="space-y-4">
                   {visibleStudents.map((student) => {
                     const isLinked = (currentUserParent as any)?.linkedStudentId === student.id;
@@ -770,7 +789,6 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
                         </div>
 
                         <div className={`pt-4 border-t flex items-center justify-between ${isDarkMode ? 'border-gray-700' : 'border-gray-100'}`}>
-                            {/* ESTADO DE SALIDA PARA EL PADRE */}
                             <div className={`text-xs font-medium ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
                                {student.pickupAuthorization === PickupAuthStatus.PENDING 
                                  ? "Esperando confirmación..." 
@@ -781,13 +799,18 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
                                      : "Estado regular."}
                             </div>
                             
-                            {isLinked && student.pickupAuthorization === PickupAuthStatus.NONE && (
+                            {/* BOTÓN SOLICITAR / REENVIAR */}
+                            {isLinked && (student.pickupAuthorization === PickupAuthStatus.NONE || student.pickupAuthorization === PickupAuthStatus.REJECTED) && (
                               <button 
                                 onClick={() => handleRequestPickup(student.id)}
-                                className="flex items-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-all"
+                                className={`flex items-center px-4 py-2 text-white text-xs font-bold rounded-lg transition-all ${
+                                  student.pickupAuthorization === PickupAuthStatus.REJECTED 
+                                    ? 'bg-orange-500 hover:bg-orange-600' 
+                                    : 'bg-blue-600 hover:bg-blue-700'
+                                }`}
                               >
                                 <Icons.Send className="w-3 h-3 mr-2" />
-                                Solicitar Salida
+                                {student.pickupAuthorization === PickupAuthStatus.REJECTED ? "Reenviar Solicitud" : "Solicitar Salida"}
                               </button>
                             )}
                             
@@ -856,7 +879,6 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
                 </div>
               </div>
 
-              {/* Right Column: AI Panel */}
               <div className="lg:col-span-5 flex flex-col h-full">
                 <div className="mb-4">
                   <h2 className={`text-lg font-bold ${isDarkMode ? 'text-white' : 'text-gray-900'}`}>Centro de Ayuda</h2>
@@ -870,7 +892,6 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
         </div>
       </main>
 
-      {/* Modals */}
       {selectedStudent && (
         <StudentDetailModal 
           student={selectedStudent} 

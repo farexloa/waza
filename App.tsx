@@ -802,3 +802,4 @@ const handleRegisterStudent = async (e: React.FormEvent) => {
   );
 };
 
+export default App;
